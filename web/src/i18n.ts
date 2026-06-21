@@ -15,7 +15,7 @@ export const messages = {
     xrayConfig: 'XRAY CONFIGURATION', generatedConfig: 'Generated config', clientImportLink: 'CLIENT IMPORT LINK', exportName: 'Export {name}', pasteLink: 'Paste this link into a compatible client.',
     copyLink: 'Copy link', done: 'Done', unlimited: 'Unlimited', never: 'Never', adminCreated: 'Administrator account created.', signedIn: 'Signed in successfully.',
     inboundCreated: 'Inbound {name} created. Click Apply Config to restart Xray.', configApplied: 'Configuration applied: {path}', linkCopied: 'Import link copied.',
-    exportTitle: 'Export import link', previewTitle: 'Preview generated config', english: 'English', chinese: '中文',
+    exportTitle: 'Export import link', previewTitle: 'Preview generated config', english: 'English', chinese: '中文', sessionExpired: 'Your administrator credentials changed. Please sign in again.',
   },
   zh: {
     firstRun: '首次运行设置', signInEyebrow: '安全登录', createAdmin: '创建管理员', welcome: '欢迎回来',
@@ -31,7 +31,7 @@ export const messages = {
     xrayConfig: 'XRAY 配置', generatedConfig: '生成的配置', clientImportLink: '客户端导入链接', exportName: '导出 {name}', pasteLink: '将此链接粘贴到兼容的客户端中。',
     copyLink: '复制链接', done: '完成', unlimited: '不限流量', never: '永不过期', adminCreated: '管理员账户已创建。', signedIn: '登录成功。',
     inboundCreated: '入站节点 {name} 已创建，请点击“应用配置”重启 Xray。', configApplied: '配置已应用：{path}', linkCopied: '导入链接已复制。',
-    exportTitle: '导出导入链接', previewTitle: '预览生成的配置', english: 'English', chinese: '中文',
+    exportTitle: '导出导入链接', previewTitle: '预览生成的配置', english: 'English', chinese: '中文', sessionExpired: '管理员凭据已更改，请重新登录。',
   },
 } as const
 

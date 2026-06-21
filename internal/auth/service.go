@@ -29,7 +29,7 @@ type User struct {
 
 type Repository interface {
 	HasUser(context.Context) (bool, error)
-	UpsertUser(context.Context, string, string, string) error
+	ReplaceAdministrator(context.Context, string, string, string) error
 	FindUserByUsername(context.Context, string) (User, error)
 	CreateSession(context.Context, int64, string, time.Time) error
 	FindSession(context.Context, string) (User, error)
@@ -54,7 +54,7 @@ func (s *Service) Setup(ctx context.Context, username, password string) error {
 	if err != nil {
 		return err
 	}
-	return s.repository.UpsertUser(ctx, username, hash, salt)
+	return s.repository.ReplaceAdministrator(ctx, username, hash, salt)
 }
 
 func (s *Service) Login(ctx context.Context, username, password string) (string, time.Time, error) {
@@ -81,7 +81,11 @@ func (s *Service) CurrentUser(ctx context.Context, token string) (User, error) {
 	if strings.TrimSpace(token) == "" {
 		return User{}, ErrInvalidCredentials
 	}
-	return s.repository.FindSession(ctx, token)
+	user, err := s.repository.FindSession(ctx, token)
+	if err != nil {
+		return User{}, ErrInvalidCredentials
+	}
+	return user, nil
 }
 
 func (s *Service) Logout(ctx context.Context, token string) error {

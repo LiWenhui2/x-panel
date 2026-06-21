@@ -86,14 +86,24 @@ func (s *Store) HasUser(ctx context.Context) (bool, error) {
 	return count > 0, nil
 }
 
-func (s *Store) UpsertUser(ctx context.Context, username, passwordHash, salt string) error {
+func (s *Store) ReplaceAdministrator(ctx context.Context, username, passwordHash, salt string) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	_, err := s.db.ExecContext(ctx, `
-INSERT INTO users (username, password_hash, salt, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?)
-ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash, salt=excluded.salt, updated_at=excluded.updated_at`,
-		username, passwordHash, salt, now, now)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `DELETE FROM sessions`); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM users`); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO users (username, password_hash, salt, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+		username, passwordHash, salt, now, now); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) FindUserByUsername(ctx context.Context, username string) (auth.User, error) {

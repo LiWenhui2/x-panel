@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import {
   IconAlertCircle, IconCheck, IconCode, IconCopy, IconDownload, IconEye,
   IconLock, IconLogout, IconPlus, IconRefresh, IconRocket, IconServer,
@@ -28,6 +28,7 @@ const authForm = reactive({ username: 'admin', password: '' })
 const language = ref<Language>((localStorage.getItem('xpanel-language') as Language) === 'zh' ? 'zh' : 'en')
 const gib = 1024 ** 3
 const form = reactive<FormState>(newForm())
+let sessionTimer: number | undefined
 
 const totalQuota = computed(() => items.value.reduce((sum, item) => sum + item.totalBytes, 0))
 const enabledCount = computed(() => items.value.filter(item => item.enabled).length)
@@ -80,6 +81,22 @@ async function loadStatus() {
     if (authenticated.value) await refresh()
   } catch (cause) {
     error.value = errorText(cause)
+  }
+}
+
+async function verifySession() {
+  if (!authenticated.value) return
+  try {
+    const status = await api.authStatus()
+    if (status.authenticated) return
+    authenticated.value = false
+    username.value = ''
+    items.value = []
+    authForm.password = ''
+    message.value = ''
+    error.value = t('sessionExpired')
+  } catch {
+    // A brief service restart should not sign the user out until the server responds.
   }
 }
 
@@ -234,7 +251,16 @@ function formatBytes(value: number) {
 function formatExpiry(value: string) { return value ? new Date(value).toLocaleString(language.value === 'zh' ? 'zh-CN' : 'en-US') : t('never') }
 function errorText(cause: unknown) { return cause instanceof Error ? cause.message : String(cause) }
 
-onMounted(() => { setLanguage(language.value); void loadStatus() })
+onMounted(() => {
+  setLanguage(language.value)
+  void loadStatus()
+  sessionTimer = window.setInterval(() => void verifySession(), 3000)
+  window.addEventListener('focus', verifySession)
+})
+onBeforeUnmount(() => {
+  if (sessionTimer !== undefined) window.clearInterval(sessionTimer)
+  window.removeEventListener('focus', verifySession)
+})
 </script>
 
 <template>

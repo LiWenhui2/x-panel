@@ -2,9 +2,11 @@ package sqlite
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
+	"xpanel/internal/auth"
 	"xpanel/internal/inbound"
 )
 
@@ -35,5 +37,35 @@ func TestStoreCreateAndList(t *testing.T) {
 	}
 	if items[0].TotalBytes != 10737418240 || !items[0].Sniffing {
 		t.Fatalf("extended fields not persisted: %#v", items[0])
+	}
+}
+
+func TestReplacingAdministratorRevokesSessionsAndOldCredentials(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "auth.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	service := auth.NewService(store)
+
+	if err := service.Setup(ctx, "old-admin", "old-password-123"); err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := service.Login(ctx, "old-admin", "old-password-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Setup(ctx, "new-admin", "new-password-456"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CurrentUser(ctx, token); !errors.Is(err, auth.ErrInvalidCredentials) {
+		t.Fatalf("expected the existing session to be revoked, got %v", err)
+	}
+	if _, _, err := service.Login(ctx, "old-admin", "old-password-123"); !errors.Is(err, auth.ErrInvalidCredentials) {
+		t.Fatalf("expected old credentials to fail, got %v", err)
+	}
+	if _, _, err := service.Login(ctx, "new-admin", "new-password-456"); err != nil {
+		t.Fatalf("expected new credentials to work, got %v", err)
 	}
 }
