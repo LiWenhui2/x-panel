@@ -42,7 +42,7 @@ prompt_password() {
 
 collect_setup() {
   log "Initial setup"
-  PANEL_PORT=$(prompt_value "Panel local port" "${PANEL_PORT}")
+  PANEL_PORT=$(prompt_value "Panel port" "${PANEL_PORT}")
   ADMIN_USERNAME=$(prompt_value "Administrator username" "${ADMIN_USERNAME}")
   ADMIN_PASSWORD=$(prompt_password "Administrator password" "${ADMIN_PASSWORD}")
   if ! [[ "${PANEL_PORT}" =~ ^[0-9]+$ ]] || (( PANEL_PORT < 1 || PANEL_PORT > 65535 )); then
@@ -61,7 +61,7 @@ detect_arch() {
 install_apt_deps() {
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
-  apt-get install -y ca-certificates curl git unzip tar sudo
+  apt-get install -y ca-certificates curl git unzip tar sudo ufw
   if ! command -v node >/dev/null 2>&1 || ! node -v | grep -Eq "^v${NODE_MAJOR}\."; then
     log "Installing Node.js ${NODE_MAJOR}.x"
     curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
@@ -135,10 +135,10 @@ install_services() {
 
   cat >/etc/xpanel/xpanel.env <<EOF
 XPANEL_DATA_DIR=${DATA_DIR}
-XPANEL_LISTEN=127.0.0.1:${PANEL_PORT}
+XPANEL_LISTEN=0.0.0.0:${PANEL_PORT}
 XPANEL_XRAY_BINARY=${XRAY_DIR}/xray
 XPANEL_XRAY_CONFIG=${DATA_DIR}/xray/config.json
-XPANEL_RELOAD_COMMAND=/usr/bin/sudo /usr/bin/systemctl restart xpanel-xray.service
+XPANEL_RELOAD_COMMAND="/usr/bin/sudo /usr/bin/systemctl restart xpanel-xray.service"
 EOF
 
   chown -R xpanel:xpanel "${DATA_DIR}"
@@ -146,6 +146,9 @@ EOF
   systemctl daemon-reload
   systemctl enable xpanel.service xpanel-xray.service >/dev/null
   systemctl restart xpanel.service
+  if ufw status | grep -q '^Status: active'; then
+    ufw allow "${PANEL_PORT}/tcp" comment 'XPanel web panel' >/dev/null
+  fi
 }
 
 post_check() {
@@ -154,21 +157,14 @@ post_check() {
   log "Installation completed"
   cat <<EOF
 
-Panel local listener:
-  127.0.0.1:${PANEL_PORT}
+Panel listener:
+  0.0.0.0:${PANEL_PORT}
 
-Open an SSH tunnel from your computer:
-  ssh -L 18080:127.0.0.1:${PANEL_PORT} root@your-server
-
-Then open:
-  http://127.0.0.1:18080/
+Open in your browser:
+  http://YOUR_SERVER_IP:${PANEL_PORT}/
 
 Control menu:
   x-panel
-
-Default values are used when you press Enter during setup:
-  username: admin
-  password: admin123456
 EOF
 }
 

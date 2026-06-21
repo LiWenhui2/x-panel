@@ -7,8 +7,6 @@
 
 XPanel is a lightweight web panel for creating, applying and exporting Xray inbound nodes.
 
-The panel is installed as a local-only service by default and should be accessed through an SSH tunnel. This keeps the management UI away from the public internet.
-
 ## One-click installation
 
 Run as `root` on a fresh Ubuntu/Debian VPS:
@@ -19,63 +17,19 @@ bash <(curl -fsSL https://raw.githubusercontent.com/LiWenhui2/x-panel/main/packa
 
 During installation, the script asks for:
 
-- panel local port;
+- panel port;
 - administrator username;
 - administrator password.
 
-Press `Enter` to use the defaults:
-
-| Item | Default |
-|---|---|
-| Panel port | `8080` |
-| Username | `admin` |
-| Password | `admin123456` |
-
 ## Open the panel
 
-Create an SSH tunnel from your computer:
-
-```bash
-ssh -L 18080:127.0.0.1:8080 root@YOUR_SERVER_IP
-```
-
-Then open:
+After installation, open the address printed by the installer:
 
 ```text
-http://127.0.0.1:18080/
+http://YOUR_SERVER_IP:PANEL_PORT/
 ```
 
-If local port `18080` is already used, change only the first port:
-
-```bash
-ssh -L 28080:127.0.0.1:8080 root@YOUR_SERVER_IP
-```
-
-Then open:
-
-```text
-http://127.0.0.1:28080/
-```
-
-## Add and apply a node
-
-1. Sign in to the panel.
-2. Click `Add Inbound`.
-3. For the first test, use:
-   - protocol: `VLESS`;
-   - transport: `TCP`;
-   - security: `none`;
-   - listen IP: your VPS public IP;
-   - port: any free port, for example `24443`.
-4. Save the inbound.
-5. Click `Apply Config`.
-6. Allow the node port in the server firewall:
-
-```bash
-ufw allow 24443/tcp comment xpanel-node
-```
-
-7. Click `Export` in the panel and import the generated link into your client.
+For a production deployment, place the panel behind an HTTPS reverse proxy and restrict access with your cloud firewall whenever possible.
 
 ## Command line control menu
 
