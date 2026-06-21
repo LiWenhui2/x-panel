@@ -1,0 +1,27 @@
+[Unit]
+Description=XPanel Xray Management Panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xpanel
+Group=xpanel
+ExecStart=/usr/local/bin/xpanel
+WorkingDirectory=/var/lib/xpanel
+Environment=XPANEL_DATA_DIR=/var/lib/xpanel
+Environment=XPANEL_LISTEN=127.0.0.1:8080
+Environment=XPANEL_XRAY_BINARY=/opt/xpanel/bin/xray
+Environment=XPANEL_XRAY_CONFIG=/var/lib/xpanel/xray/config.json
+Environment="XPANEL_RELOAD_COMMAND=/usr/bin/sudo /usr/bin/systemctl restart xpanel-xray.service"
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=false
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/xpanel
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

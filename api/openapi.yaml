@@ -1,0 +1,62 @@
+openapi: 3.1.0
+info:
+  title: XPanel Demo API
+  version: 0.1.0
+servers:
+  - url: /api/v1
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service is ready
+  /inbounds:
+    get:
+      operationId: listInbounds
+      responses:
+        "200":
+          description: Inbound collection
+    post:
+      operationId: createInbound
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInbound"
+      responses:
+        "201":
+          description: Inbound created
+        "422":
+          description: Domain validation failed
+  /config/preview:
+    post:
+      operationId: previewConfig
+      responses:
+        "200":
+          description: Deterministic, validated Xray configuration
+        "422":
+          description: Compilation or Xray validation failed
+components:
+  schemas:
+    CreateInbound:
+      type: object
+      required: [remark, listen, port, protocol, network, security, clientId, email, enabled]
+      properties:
+        remark: { type: string, minLength: 1 }
+        listen: { type: string }
+        port: { type: integer, minimum: 1, maximum: 65535 }
+        protocol: { type: string, enum: [vless, vmess] }
+        network: { type: string, enum: [tcp, ws] }
+        security: { type: string, enum: [none, tls] }
+        clientId: { type: string, format: uuid }
+        email: { type: string, format: email }
+        enabled: { type: boolean }
+        totalBytes: { type: integer, minimum: 0 }
+        expiryTime: { type: string, description: Empty or RFC3339 timestamp }
+        alterId: { type: integer, minimum: 0, maximum: 65535 }
+        sniffing: { type: boolean }
+        wsPath: { type: string }
+        tlsCertFile: { type: string }
+        tlsKeyFile: { type: string }

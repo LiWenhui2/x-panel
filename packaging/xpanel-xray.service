@@ -1,0 +1,25 @@
+[Unit]
+Description=XPanel Managed Xray Core
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/var/lib/xpanel/xray/config.json
+
+[Service]
+Type=simple
+User=xpanel
+Group=xpanel
+ExecStart=/opt/xpanel/bin/xray run -config /var/lib/xpanel/xray/config.json
+WorkingDirectory=/var/lib/xpanel
+Restart=on-failure
+RestartSec=3s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/xpanel
+AmbientCapabilities=
+CapabilityBoundingSet=
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

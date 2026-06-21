@@ -1,0 +1,14 @@
+.tools/
+.gocache/
+node_modules/
+dist/
+`
+*.db
+*.db-shm
+*.db-wal
+.env
+coverage/
+bin/xray*
+var/
+var-*/
+*.tsbuildinfo

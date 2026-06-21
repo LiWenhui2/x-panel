@@ -1,0 +1,1 @@
+xpanel ALL=(root) NOPASSWD: /usr/bin/systemctl restart xpanel-xray.service, /usr/bin/systemctl start xpanel-xray.service
