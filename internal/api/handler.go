@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"xpanel/internal/auth"
 	"xpanel/internal/configcompiler"
 	"xpanel/internal/inbound"
 	"xpanel/internal/runtime"
@@ -26,32 +27,109 @@ type configApplier interface {
 	Apply(context.Context, []byte, string) (runtime.ApplyResult, error)
 }
 
+type authService interface {
+	NeedsSetup(context.Context) (bool, error)
+	Setup(context.Context, string, string) error
+	Login(context.Context, string, string) (string, time.Time, error)
+	CurrentUser(context.Context, string) (auth.User, error)
+	Logout(context.Context, string) error
+}
+
 type Handler struct {
 	service   inboundService
+	auth      authService
 	compiler  *configcompiler.Compiler
 	validator runtime.Validator
 	applier   configApplier
 	logger    *slog.Logger
 }
 
-func New(service inboundService, compiler *configcompiler.Compiler, validator runtime.Validator, applier configApplier, logger *slog.Logger) *Handler {
-	return &Handler{service: service, compiler: compiler, validator: validator, applier: applier, logger: logger}
+func New(service inboundService, auth authService, compiler *configcompiler.Compiler, validator runtime.Validator, applier configApplier, logger *slog.Logger) *Handler {
+	return &Handler{service: service, auth: auth, compiler: compiler, validator: validator, applier: applier, logger: logger}
 }
 
 func (h *Handler) Routes() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer, middleware.Timeout(20*time.Second))
 	r.Get("/api/v1/health", h.health)
-	r.Get("/api/v1/inbounds", h.listInbounds)
-	r.Post("/api/v1/inbounds", h.createInbound)
-	r.Post("/api/v1/config/preview", h.previewConfig)
-	r.Post("/api/v1/config/apply", h.applyConfig)
+	r.Get("/api/v1/auth/status", h.authStatus)
+	r.Post("/api/v1/auth/setup", h.setup)
+	r.Post("/api/v1/auth/login", h.login)
+	r.Post("/api/v1/auth/logout", h.logout)
+	r.Group(func(protected chi.Router) {
+		protected.Use(h.requireAuth)
+		protected.Get("/api/v1/inbounds", h.listInbounds)
+		protected.Post("/api/v1/inbounds", h.createInbound)
+		protected.Post("/api/v1/config/preview", h.previewConfig)
+		protected.Post("/api/v1/config/apply", h.applyConfig)
+	})
 	r.Handle("/*", webui.Handler())
 	return r
 }
 
 func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "service": "xpanel-demo"})
+}
+
+func (h *Handler) authStatus(w http.ResponseWriter, r *http.Request) {
+	needsSetup, err := h.auth.NeedsSetup(r.Context())
+	if err != nil {
+		h.internalError(w, r, err)
+		return
+	}
+	user, authenticated := h.userFromCookie(r)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"needsSetup":    needsSetup,
+		"authenticated": authenticated,
+		"username":      user.Username,
+	})
+}
+
+func (h *Handler) setup(w http.ResponseWriter, r *http.Request) {
+	needsSetup, err := h.auth.NeedsSetup(r.Context())
+	if err != nil {
+		h.internalError(w, r, err)
+		return
+	}
+	if !needsSetup {
+		writeError(w, http.StatusConflict, "already_configured", "administrator account already exists")
+		return
+	}
+	var input credentials
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if err := h.auth.Setup(r.Context(), input.Username, input.Password); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "setup_failed", err.Error())
+		return
+	}
+	h.loginWithCredentials(w, r, input)
+}
+
+func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
+	var input credentials
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	h.loginWithCredentials(w, r, input)
+}
+
+func (h *Handler) loginWithCredentials(w http.ResponseWriter, r *http.Request, input credentials) {
+	token, expiresAt, err := h.auth.Login(r.Context(), input.Username, input.Password)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
+		return
+	}
+	http.SetCookie(w, sessionCookie(token, expiresAt))
+	writeJSON(w, http.StatusOK, map[string]any{"authenticated": true, "username": input.Username})
+}
+
+func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie("xpanel_session"); err == nil {
+		_ = h.auth.Logout(r.Context(), cookie.Value)
+	}
+	http.SetCookie(w, sessionCookie("", time.Now().UTC().Add(-time.Hour)))
+	writeJSON(w, http.StatusOK, map[string]any{"authenticated": false})
 }
 
 func (h *Handler) listInbounds(w http.ResponseWriter, r *http.Request) {
@@ -64,12 +142,8 @@ func (h *Handler) listInbounds(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createInbound(w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
 	var input inbound.CreateInput
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&input); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+	if !decodeJSON(w, r, &input) {
 		return
 	}
 	item, err := h.service.Create(r.Context(), input)
@@ -86,6 +160,61 @@ func (h *Handler) createInbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, item)
+}
+
+func (h *Handler) requireAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		needsSetup, err := h.auth.NeedsSetup(r.Context())
+		if err != nil {
+			h.internalError(w, r, err)
+			return
+		}
+		if needsSetup {
+			writeError(w, http.StatusUnauthorized, "setup_required", "administrator setup is required")
+			return
+		}
+		if _, ok := h.userFromCookie(r); !ok {
+			writeError(w, http.StatusUnauthorized, "unauthorized", "login required")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (h *Handler) userFromCookie(r *http.Request) (auth.User, bool) {
+	cookie, err := r.Cookie("xpanel_session")
+	if err != nil {
+		return auth.User{}, false
+	}
+	user, err := h.auth.CurrentUser(r.Context(), cookie.Value)
+	return user, err == nil
+}
+
+type credentials struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+func decodeJSON(w http.ResponseWriter, r *http.Request, value any) bool {
+	defer r.Body.Close()
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(value); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return false
+	}
+	return true
+}
+
+func sessionCookie(token string, expiresAt time.Time) *http.Cookie {
+	return &http.Cookie{
+		Name:     "xpanel_session",
+		Value:    token,
+		Path:     "/",
+		Expires:  expiresAt,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	}
 }
 
 func (h *Handler) previewConfig(w http.ResponseWriter, r *http.Request) {

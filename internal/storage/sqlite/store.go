@@ -9,6 +9,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"xpanel/internal/auth"
 	"xpanel/internal/inbound"
 )
 
@@ -56,11 +57,89 @@ CREATE TABLE IF NOT EXISTS config_revisions (
   content TEXT NOT NULL,
   status TEXT NOT NULL,
   created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  salt TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
 );`)
 	if err != nil {
 		return fmt.Errorf("migrate sqlite: %w", err)
 	}
 	return s.ensureInboundColumns()
+}
+
+func (s *Store) HasUser(ctx context.Context) (bool, error) {
+	var count int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (s *Store) UpsertUser(ctx context.Context, username, passwordHash, salt string) error {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO users (username, password_hash, salt, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash, salt=excluded.salt, updated_at=excluded.updated_at`,
+		username, passwordHash, salt, now, now)
+	return err
+}
+
+func (s *Store) FindUserByUsername(ctx context.Context, username string) (auth.User, error) {
+	var user auth.User
+	var createdAt string
+	err := s.db.QueryRowContext(ctx, `SELECT id, username, password_hash, salt, created_at FROM users WHERE username = ?`, username).
+		Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Salt, &createdAt)
+	if err != nil {
+		return auth.User{}, err
+	}
+	user.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
+	return user, nil
+}
+
+func (s *Store) CreateSession(ctx context.Context, userID int64, token string, expiresAt time.Time) error {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions (token, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)`,
+		token, userID, expiresAt.UTC().Format(time.RFC3339Nano), now)
+	return err
+}
+
+func (s *Store) FindSession(ctx context.Context, token string) (auth.User, error) {
+	var user auth.User
+	var createdAt string
+	var expiresAt string
+	err := s.db.QueryRowContext(ctx, `
+SELECT u.id, u.username, u.password_hash, u.salt, u.created_at, s.expires_at
+FROM sessions s
+JOIN users u ON u.id = s.user_id
+WHERE s.token = ?`, token).
+		Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Salt, &createdAt, &expiresAt)
+	if err != nil {
+		return auth.User{}, err
+	}
+	expiry, err := time.Parse(time.RFC3339Nano, expiresAt)
+	if err != nil || time.Now().UTC().After(expiry) {
+		_ = s.DeleteSession(ctx, token)
+		return auth.User{}, sql.ErrNoRows
+	}
+	user.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
+	return user, nil
+}
+
+func (s *Store) DeleteSession(ctx context.Context, token string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE token = ?`, token)
+	return err
 }
 
 func (s *Store) ensureInboundColumns() error {

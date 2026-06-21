@@ -6,17 +6,47 @@ BRANCH=${XPANEL_BRANCH:-"main"}
 INSTALL_DIR=${XPANEL_INSTALL_DIR:-"/opt/xpanel/src"}
 DATA_DIR=${XPANEL_DATA_DIR:-"/var/lib/xpanel"}
 XRAY_DIR=${XPANEL_XRAY_DIR:-"/opt/xpanel/bin"}
-PANEL_LISTEN=${XPANEL_LISTEN:-"127.0.0.1:8080"}
 GO_VERSION=${XPANEL_GO_VERSION:-"1.26.4"}
 NODE_MAJOR=${XPANEL_NODE_MAJOR:-"24"}
+PANEL_PORT=${XPANEL_PANEL_PORT:-"8080"}
+ADMIN_USERNAME=${XPANEL_ADMIN_USERNAME:-"admin"}
+ADMIN_PASSWORD=${XPANEL_ADMIN_PASSWORD:-"admin123456"}
 
 log() { printf '\033[1;32m[XPANEL]\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33m[XPANEL]\033[0m %s\n' "$*" >&2; }
 die() { printf '\033[1;31m[XPANEL]\033[0m %s\n' "$*" >&2; exit 1; }
 
 require_root() {
-  if [[ ${EUID} -ne 0 ]]; then
-    die "请使用 root 运行：sudo bash packaging/install.sh"
+  [[ ${EUID} -eq 0 ]] || die "Please run as root."
+}
+
+prompt_value() {
+  local label=$1 default=$2 value
+  if [[ -t 0 ]]; then
+    read -r -p "${label} [${default}]: " value || true
+    printf '%s' "${value:-$default}"
+  else
+    printf '%s' "${default}"
+  fi
+}
+
+prompt_password() {
+  local label=$1 default=$2 value
+  if [[ -t 0 ]]; then
+    read -r -s -p "${label} [${default}]: " value || true
+    printf '\n' >&2
+    printf '%s' "${value:-$default}"
+  else
+    printf '%s' "${default}"
+  fi
+}
+
+collect_setup() {
+  log "Initial setup"
+  PANEL_PORT=$(prompt_value "Panel local port" "${PANEL_PORT}")
+  ADMIN_USERNAME=$(prompt_value "Administrator username" "${ADMIN_USERNAME}")
+  ADMIN_PASSWORD=$(prompt_password "Administrator password" "${ADMIN_PASSWORD}")
+  if ! [[ "${PANEL_PORT}" =~ ^[0-9]+$ ]] || (( PANEL_PORT < 1 || PANEL_PORT > 65535 )); then
+    die "Invalid panel port: ${PANEL_PORT}"
   fi
 }
 
@@ -24,7 +54,7 @@ detect_arch() {
   case "$(uname -m)" in
     x86_64|amd64) echo "amd64" ;;
     aarch64|arm64) echo "arm64" ;;
-    *) die "暂不支持当前架构：$(uname -m)" ;;
+    *) die "Unsupported architecture: $(uname -m)" ;;
   esac
 }
 
@@ -33,22 +63,21 @@ install_apt_deps() {
   apt-get update
   apt-get install -y ca-certificates curl git unzip tar sudo
   if ! command -v node >/dev/null 2>&1 || ! node -v | grep -Eq "^v${NODE_MAJOR}\."; then
-    log "安装 Node.js ${NODE_MAJOR}.x"
+    log "Installing Node.js ${NODE_MAJOR}.x"
     curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
     apt-get install -y nodejs
   fi
 }
 
 install_go() {
-  local arch archive url
+  local arch archive
   arch="$(detect_arch)"
   if command -v go >/dev/null 2>&1 && go version | grep -q "go${GO_VERSION}"; then
     return
   fi
   archive="go${GO_VERSION}.linux-${arch}.tar.gz"
-  url="https://go.dev/dl/${archive}"
-  log "安装 Go ${GO_VERSION}"
-  curl -fL "${url}" -o "/tmp/${archive}"
+  log "Installing Go ${GO_VERSION}"
+  curl -fL "https://go.dev/dl/${archive}" -o "/tmp/${archive}"
   rm -rf /usr/local/go
   tar -C /usr/local -xzf "/tmp/${archive}"
   ln -sf /usr/local/go/bin/go /usr/local/bin/go
@@ -56,22 +85,21 @@ install_go() {
 }
 
 install_xray() {
-  local arch zip url
+  local arch zip
   arch="$(detect_arch)"
   case "${arch}" in
     amd64) zip="Xray-linux-64.zip" ;;
     arm64) zip="Xray-linux-arm64-v8a.zip" ;;
   esac
-  url="https://github.com/XTLS/Xray-core/releases/latest/download/${zip}"
-  log "安装 Xray core"
+  log "Installing Xray core"
   install -d -m 0755 "${XRAY_DIR}"
-  curl -fL "${url}" -o "/tmp/${zip}"
+  curl -fL "https://github.com/XTLS/Xray-core/releases/latest/download/${zip}" -o "/tmp/${zip}"
   unzip -o "/tmp/${zip}" -d "${XRAY_DIR}" >/dev/null
   chmod 0755 "${XRAY_DIR}/xray"
 }
 
 checkout_source() {
-  log "拉取源码：${REPO_URL} (${BRANCH})"
+  log "Checking out source: ${REPO_URL} (${BRANCH})"
   install -d -m 0755 "$(dirname "${INSTALL_DIR}")"
   if [[ -d "${INSTALL_DIR}/.git" ]]; then
     git -C "${INSTALL_DIR}" fetch --all --prune
@@ -84,67 +112,69 @@ checkout_source() {
 }
 
 build_project() {
-  log "构建前端"
+  log "Building web assets"
   npm --prefix "${INSTALL_DIR}/web" ci
   npm --prefix "${INSTALL_DIR}/web" run build
-
-  log "构建后端"
+  log "Building xpanel binary"
   mkdir -p "${INSTALL_DIR}/dist"
   (cd "${INSTALL_DIR}" && CGO_ENABLED=0 go build -a -buildvcs=false -trimpath -ldflags='-s -w' -o dist/xpanel-linux-amd64 ./cmd/xpanel)
 }
 
 install_services() {
-  log "安装 systemd 服务"
+  log "Installing services"
   id -u xpanel >/dev/null 2>&1 || useradd --system --home-dir "${DATA_DIR}" --shell /usr/sbin/nologin xpanel
   install -d -o xpanel -g xpanel -m 0750 "${DATA_DIR}" "${DATA_DIR}/xray"
+  install -d -m 0755 /etc/xpanel
 
   install -m 0755 "${INSTALL_DIR}/dist/xpanel-linux-amd64" /usr/local/bin/xpanel
+  install -m 0755 "${INSTALL_DIR}/packaging/x-panel" /usr/local/bin/x-panel
   install -m 0644 "${INSTALL_DIR}/packaging/xpanel.service" /etc/systemd/system/xpanel.service
   install -m 0644 "${INSTALL_DIR}/packaging/xpanel-xray.service" /etc/systemd/system/xpanel-xray.service
   install -m 0440 "${INSTALL_DIR}/packaging/xpanel-sudoers" /etc/sudoers.d/xpanel
   visudo -cf /etc/sudoers.d/xpanel >/dev/null
 
-  mkdir -p /etc/systemd/system/xpanel.service.d
-  cat >/etc/systemd/system/xpanel.service.d/override.conf <<EOF
-[Service]
-Environment=XPANEL_DATA_DIR=${DATA_DIR}
-Environment=XPANEL_LISTEN=${PANEL_LISTEN}
-Environment=XPANEL_XRAY_BINARY=${XRAY_DIR}/xray
-Environment=XPANEL_XRAY_CONFIG=${DATA_DIR}/xray/config.json
-Environment="XPANEL_RELOAD_COMMAND=/usr/bin/sudo /usr/bin/systemctl restart xpanel-xray.service"
-ReadWritePaths=${DATA_DIR}
+  cat >/etc/xpanel/xpanel.env <<EOF
+XPANEL_DATA_DIR=${DATA_DIR}
+XPANEL_LISTEN=127.0.0.1:${PANEL_PORT}
+XPANEL_XRAY_BINARY=${XRAY_DIR}/xray
+XPANEL_XRAY_CONFIG=${DATA_DIR}/xray/config.json
+XPANEL_RELOAD_COMMAND=/usr/bin/sudo /usr/bin/systemctl restart xpanel-xray.service
 EOF
 
   chown -R xpanel:xpanel "${DATA_DIR}"
+  XPANEL_DATA_DIR="${DATA_DIR}" /usr/local/bin/xpanel user set --username "${ADMIN_USERNAME}" --password "${ADMIN_PASSWORD}"
   systemctl daemon-reload
   systemctl enable xpanel.service xpanel-xray.service >/dev/null
   systemctl restart xpanel.service
 }
 
 post_check() {
-  log "检查服务状态"
-  systemctl --no-pager --full status xpanel.service || true
-  curl -fsS "http://127.0.0.1:${PANEL_LISTEN##*:}/api/v1/health" >/dev/null || die "面板健康检查失败"
-  log "安装完成"
+  log "Checking panel health"
+  curl -fsS "http://127.0.0.1:${PANEL_PORT}/api/v1/health" >/dev/null || die "Panel health check failed."
+  log "Installation completed"
   cat <<EOF
 
-面板默认只监听：${PANEL_LISTEN}
+Panel local listener:
+  127.0.0.1:${PANEL_PORT}
 
-如果 ${PANEL_LISTEN} 是 127.0.0.1:8080，请在本机使用 SSH 隧道访问：
-  ssh -L 18080:127.0.0.1:8080 root@你的服务器IP
+Open an SSH tunnel from your computer:
+  ssh -L 18080:127.0.0.1:${PANEL_PORT} root@your-server
 
-然后浏览器打开：
+Then open:
   http://127.0.0.1:18080/
 
-添加节点后请：
-  1. 在面板点击“应用配置”
-  2. 放行节点端口，例如：ufw allow 24443/tcp
-  3. 导出链接并导入客户端测试
+Control menu:
+  x-panel
+
+Default values are used when you press Enter during setup:
+  username: admin
+  password: admin123456
 EOF
 }
 
 main() {
   require_root
+  collect_setup
   install_apt_deps
   install_go
   install_xray

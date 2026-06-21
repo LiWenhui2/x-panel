@@ -21,9 +21,12 @@ export type Inbound = {
 }
 
 export type CreateInbound = Omit<Inbound, 'id' | 'tag' | 'createdAt'>
+export type Credentials = { username: string; password: string }
+export type AuthStatus = { needsSetup: boolean; authenticated: boolean; username: string }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
+    credentials: 'same-origin',
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },
   })
@@ -33,6 +36,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  authStatus: () => request<AuthStatus>('/api/v1/auth/status'),
+  setup: (input: Credentials) =>
+    request<{ authenticated: boolean; username: string }>('/api/v1/auth/setup', { method: 'POST', body: JSON.stringify(input) }),
+  login: (input: Credentials) =>
+    request<{ authenticated: boolean; username: string }>('/api/v1/auth/login', { method: 'POST', body: JSON.stringify(input) }),
+  logout: () => request<{ authenticated: boolean }>('/api/v1/auth/logout', { method: 'POST' }),
   list: () => request<{ items: Inbound[] }>('/api/v1/inbounds'),
   create: (input: CreateInbound) =>
     request<Inbound>('/api/v1/inbounds', { method: 'POST', body: JSON.stringify(input) }),

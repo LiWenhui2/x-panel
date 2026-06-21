@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"xpanel/internal/api"
+	"xpanel/internal/auth"
 	"xpanel/internal/configcompiler"
 	"xpanel/internal/inbound"
 	"xpanel/internal/runtime"
@@ -34,7 +35,14 @@ func main() {
 	}
 	defer store.Close()
 
+	if len(os.Args) > 1 {
+		if handled := runCommand(context.Background(), os.Args[1:], store, logger); handled {
+			return
+		}
+	}
+
 	service := inbound.NewService(store)
+	authService := auth.NewService(store)
 	if os.Getenv("XPANEL_SEED_DEMO") == "true" {
 		if err := seedDemo(context.Background(), service); err != nil {
 			logger.Error("seed demo", "error", err)
@@ -59,7 +67,7 @@ func main() {
 		Timeout:       20 * time.Second,
 	}
 
-	handler := api.New(service, configcompiler.New(), validator, applier, logger)
+	handler := api.New(service, authService, configcompiler.New(), validator, applier, logger)
 	server := &http.Server{
 		Addr:              env("XPANEL_LISTEN", "127.0.0.1:8080"),
 		Handler:           handler.Routes(),
@@ -109,4 +117,39 @@ func env(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func runCommand(ctx context.Context, args []string, store *sqlite.Store, logger *slog.Logger) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "user":
+		if len(args) >= 2 && args[1] == "set" {
+			username, password := flagValue(args[2:], "--username"), flagValue(args[2:], "--password")
+			if username == "" || password == "" {
+				logger.Error("usage: xpanel user set --username <name> --password <password>")
+				os.Exit(2)
+			}
+			if err := auth.NewService(store).Setup(ctx, username, password); err != nil {
+				logger.Error("set user failed", "error", err)
+				os.Exit(1)
+			}
+			logger.Info("administrator account configured", "username", username)
+			return true
+		}
+	case "help", "-h", "--help":
+		logger.Info("commands: xpanel user set --username <name> --password <password>")
+		return true
+	}
+	return false
+}
+
+func flagValue(args []string, name string) string {
+	for index := 0; index < len(args)-1; index++ {
+		if args[index] == name {
+			return args[index+1]
+		}
+	}
+	return ""
 }
