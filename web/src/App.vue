@@ -23,7 +23,7 @@ const preview = ref('')
 const previewHash = ref('')
 const shareLink = ref('')
 const shareRemark = ref('')
-const authForm = reactive({ username: 'admin', password: 'admin123456' })
+const authForm = reactive({ username: 'admin', password: '' })
 const gib = 1024 ** 3
 const form = reactive<FormState>(newForm())
 
@@ -233,7 +233,7 @@ onMounted(loadStatus)
       </p>
       <form @submit.prevent="submitAuth">
         <label><span>Username</span><input v-model.trim="authForm.username" autocomplete="username" required /></label>
-        <label><span>Password</span><input v-model="authForm.password" type="password" autocomplete="current-password" required /></label>
+        <label><span>Password</span><input v-model="authForm.password" type="password" :autocomplete="needsSetup ? 'new-password' : 'current-password'" required /></label>
         <button class="primary wide" :disabled="loading"><IconLock/>{{ needsSetup ? 'Create account' : 'Sign in' }}</button>
       </form>
       <div v-if="error" class="inline-error"><IconAlertCircle/>{{ error }}</div>
