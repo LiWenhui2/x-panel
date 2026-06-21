@@ -17,6 +17,21 @@ read_default() {
   printf '%s' "${value:-$default}"
 }
 
+detect_server_ip() {
+  local address
+  address=${XPANEL_PUBLIC_IP:-}
+  if [[ -z "${address}" ]] && command -v curl >/dev/null 2>&1; then
+    address=$(curl -4fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)
+  fi
+  if ! [[ "${address}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+    address=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i+1); exit}}')
+  fi
+  if ! [[ "${address}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+    address=$(hostname -I 2>/dev/null | awk '{print $1}')
+  fi
+  printf '%s' "${address:-127.0.0.1}"
+}
+
 write_env() {
   local port=$1
   install -d -m 0755 /etc/xpanel
@@ -50,7 +65,7 @@ set_port() {
   if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then
     ufw allow "${port}/tcp" comment 'XPanel web panel' >/dev/null
   fi
-  echo "Panel port updated. Open: http://YOUR_SERVER_IP:${port}/"
+  echo "Panel port updated. Open: http://$(detect_server_ip):${port}/"
 }
 
 set_admin() {
@@ -91,7 +106,7 @@ EOF
       3) set_admin ;;
       4) systemctl restart xpanel && echo "Panel restarted." ;;
       5) systemctl restart xpanel-xray && echo "Xray restarted." ;;
-      6) echo "Browser: http://YOUR_SERVER_IP:$(current_port)/" ;;
+      6) echo "Browser: http://$(detect_server_ip):$(current_port)/" ;;
       0) exit 0 ;;
       *) echo "Invalid option." ;;
     esac

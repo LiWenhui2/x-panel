@@ -58,6 +58,21 @@ detect_arch() {
   esac
 }
 
+detect_server_ip() {
+  local address
+  address=${XPANEL_PUBLIC_IP:-}
+  if [[ -z "${address}" ]]; then
+    address=$(curl -4fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)
+  fi
+  if ! [[ "${address}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+    address=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i+1); exit}}')
+  fi
+  if ! [[ "${address}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+    address=$(hostname -I 2>/dev/null | awk '{print $1}')
+  fi
+  printf '%s' "${address:-127.0.0.1}"
+}
+
 install_apt_deps() {
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
@@ -152,8 +167,10 @@ EOF
 }
 
 post_check() {
+  local server_ip
   log "Checking panel health"
   curl -fsS "http://127.0.0.1:${PANEL_PORT}/api/v1/health" >/dev/null || die "Panel health check failed."
+  server_ip=$(detect_server_ip)
   log "Installation completed"
   cat <<EOF
 
@@ -161,7 +178,7 @@ Panel listener:
   0.0.0.0:${PANEL_PORT}
 
 Open in your browser:
-  http://YOUR_SERVER_IP:${PANEL_PORT}/
+  http://${server_ip}:${PANEL_PORT}/
 
 Control menu:
   x-panel
