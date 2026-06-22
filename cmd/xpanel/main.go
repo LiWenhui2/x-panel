@@ -18,6 +18,7 @@ import (
 	"xpanel/internal/inbound"
 	"xpanel/internal/runtime"
 	"xpanel/internal/storage/sqlite"
+	"xpanel/internal/subscription"
 )
 
 func main() {
@@ -52,6 +53,7 @@ func main() {
 		}
 	}
 	service := inbound.NewService(store, dependencies)
+	subscriptionService := subscription.NewService(store, service)
 	authService := auth.NewService(store)
 	if os.Getenv("XPANEL_SEED_DEMO") == "true" {
 		if err := seedDemo(context.Background(), service); err != nil {
@@ -77,7 +79,7 @@ func main() {
 		Timeout:       20 * time.Second,
 	}
 
-	handler := api.New(service, authService, configcompiler.New(), validator, applier, logger)
+	handler := api.New(service, authService, configcompiler.New(), validator, applier, logger, subscriptionService)
 	server := &http.Server{
 		Addr:              env("XPANEL_LISTEN", "127.0.0.1:8080"),
 		Handler:           handler.Routes(),

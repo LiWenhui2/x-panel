@@ -2,10 +2,10 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import {
   IconAlertCircle, IconCheck, IconCode, IconCopy, IconDownload, IconEye,
-  IconLock, IconLogout, IconPlus, IconRefresh, IconRocket, IconServer,
-  IconSettings, IconShieldCheck, IconX,
+  IconKey, IconLink, IconLock, IconLogout, IconPlus, IconRefresh, IconRocket, IconServer,
+  IconSettings, IconShieldCheck, IconTrash, IconX,
 } from '@tabler/icons-vue'
-import { api, type CreateInbound, type Inbound } from './api'
+import { api, type CreateInbound, type Inbound, type Subscription } from './api'
 import { messages, type Language, type MessageKey } from './i18n'
 import { buildShareLink } from './share'
 
@@ -29,6 +29,11 @@ const shareExpiry = ref('')
 const shareTotal = ref(0)
 const shareUsed = ref(0)
 const shareRemaining = ref(0)
+const activeView = ref<'inbounds' | 'subscriptions'>('inbounds')
+const subscriptions = ref<Subscription[]>([])
+const subscriptionModalOpen = ref(false)
+const subscriptionURLs = reactive<Record<number, string>>({})
+const subscriptionForm = reactive({ id: 0, name: '', enabled: true, inboundIds: [] as number[] })
 const authForm = reactive({ username: 'admin', password: '' })
 const language = ref<Language>((localStorage.getItem('xpanel-language') as Language) === 'zh' ? 'zh' : 'en')
 const gib = 1024 ** 3
@@ -133,6 +138,85 @@ async function refresh() {
   error.value = ''
   try { items.value = (await api.list()).items }
   catch (cause) { error.value = errorText(cause) }
+}
+
+async function showSubscriptions() {
+  activeView.value = 'subscriptions'
+  await refreshSubscriptions()
+}
+
+async function refreshSubscriptions() {
+  error.value = ''
+  try { subscriptions.value = (await api.subscriptions()).items }
+  catch (cause) { error.value = errorText(cause) }
+}
+
+function openSubscription(item?: Subscription) {
+  subscriptionForm.id = item?.id || 0
+  subscriptionForm.name = item?.name || ''
+  subscriptionForm.enabled = item?.enabled ?? true
+  subscriptionForm.inboundIds = [...(item?.inboundIds || [])]
+  subscriptionModalOpen.value = true
+}
+
+function toggleSubscriptionNode(id: number) {
+  const index = subscriptionForm.inboundIds.indexOf(id)
+  if (index >= 0) subscriptionForm.inboundIds.splice(index, 1)
+  else subscriptionForm.inboundIds.push(id)
+}
+
+async function saveSubscription() {
+  loading.value = true
+  error.value = ''
+  try {
+    const input = { name: subscriptionForm.name, enabled: subscriptionForm.enabled, inboundIds: subscriptionForm.inboundIds }
+    if (subscriptionForm.id) {
+      await api.updateSubscription(subscriptionForm.id, input)
+      message.value = t('subscriptionUpdated')
+    } else {
+      const result = await api.createSubscription(input)
+      subscriptionURLs[result.subscription.id] = result.url
+      message.value = t('subscriptionCreated')
+    }
+    subscriptionModalOpen.value = false
+    await refreshSubscriptions()
+  } catch (cause) { error.value = errorText(cause) }
+  finally { loading.value = false }
+}
+
+async function rotateSubscription(item: Subscription) {
+  loading.value = true
+  error.value = ''
+  try {
+    const result = await api.rotateSubscription(item.id)
+    subscriptionURLs[item.id] = result.url
+    await copyText(result.url)
+    message.value = t('subscriptionRotated')
+    await refreshSubscriptions()
+  } catch (cause) { error.value = errorText(cause) }
+  finally { loading.value = false }
+}
+
+async function copySubscriptionURL(item: Subscription) {
+  const value = subscriptionURLs[item.id]
+  if (!value) {
+    error.value = t('rotateToReveal')
+    return
+  }
+  await copyText(value)
+  message.value = t('subscriptionCopied')
+}
+
+async function removeSubscription(item: Subscription) {
+  if (!window.confirm(t('deleteSubscriptionConfirm', { name: item.name }))) return
+  loading.value = true
+  try {
+    await api.deleteSubscription(item.id)
+    delete subscriptionURLs[item.id]
+    message.value = t('subscriptionDeleted')
+    await refreshSubscriptions()
+  } catch (cause) { error.value = errorText(cause) }
+  finally { loading.value = false }
 }
 
 async function createInbound() {
@@ -275,13 +359,14 @@ onBeforeUnmount(() => {
     <aside class="sidebar">
       <div class="brand"><IconRocket/><div><strong>XPanel</strong><small>XRAY OPERATIONS</small></div></div>
       <nav>
-        <a class="active" href="#"><IconServer/><span>{{ t('inbounds') }}</span><b>{{ items.length }}</b></a>
-        <a href="#"><IconSettings/><span>{{ t('settings') }}</span></a>
+        <a :class="{ active: activeView === 'inbounds' }" href="#" @click.prevent="activeView='inbounds'"><IconServer/><span>{{ t('inbounds') }}</span><b>{{ items.length }}</b></a>
+        <a :class="{ active: activeView === 'subscriptions' }" href="#" @click.prevent="showSubscriptions"><IconLink/><span>{{ t('subscriptions') }}</span><b>{{ subscriptions.length }}</b></a>
       </nav>
       <button class="logout" @click="logout"><IconLogout/>{{ t('signOut') }}</button>
     </aside>
 
     <main class="content">
+      <template v-if="activeView === 'inbounds'">
       <header class="page-header">
         <div><p>{{ t('signedInAs', { name: username }) }}</p><h1>{{ t('nodeConsole') }}</h1></div>
         <div class="header-actions">
@@ -333,6 +418,54 @@ onBeforeUnmount(() => {
           </table>
         </div>
       </section>
+      </template>
+
+      <template v-else>
+        <header class="page-header">
+          <div><p>{{ t('signedInAs', { name: username }) }}</p><h1>{{ t('subscriptionConsole') }}</h1></div>
+          <div class="header-actions">
+            <div class="language-switch" role="group" aria-label="Language">
+              <button :class="{ active: language === 'en' }" @click="setLanguage('en')">EN</button>
+              <button :class="{ active: language === 'zh' }" @click="setLanguage('zh')">中文</button>
+            </div>
+            <div class="health"><i></i><span>{{ t('panelOnline') }}</span></div>
+          </div>
+        </header>
+
+        <div v-if="error" class="toast error"><IconAlertCircle/>{{ error }}<button @click="error=''">×</button></div>
+        <div v-if="message" class="toast success"><IconCheck/>{{ message }}<button @click="message=''">×</button></div>
+
+        <section class="table-panel subscription-panel">
+          <div class="table-toolbar">
+            <div><h2>{{ t('subscriptionLinks') }}</h2><p>{{ t('subscriptionHelp') }}</p></div>
+            <div class="toolbar-actions">
+              <button class="ghost" :disabled="loading" @click="refreshSubscriptions"><IconRefresh/>{{ t('refresh') }}</button>
+              <button class="primary" :disabled="!items.length" @click="openSubscription()"><IconPlus/>{{ t('addSubscription') }}</button>
+            </div>
+          </div>
+          <div v-if="subscriptions.length" class="subscription-grid">
+            <article v-for="item in subscriptions" :key="item.id" class="subscription-card">
+              <header>
+                <div><span :class="['state-dot', { off: !item.enabled }]"></span><strong>{{ item.name }}</strong></div>
+                <small>{{ item.inboundIds.length }} {{ t('nodes') }}</small>
+              </header>
+              <div class="token-row"><IconKey/><code>••••••••{{ item.tokenHint }}</code></div>
+              <div class="subscription-nodes">
+                <span v-for="id in item.inboundIds" :key="id">{{ items.find(node => node.id === id)?.remark || `#${id}` }}</span>
+              </div>
+              <p v-if="subscriptionURLs[item.id]" class="fresh-url">{{ subscriptionURLs[item.id] }}</p>
+              <p v-else class="url-hint">{{ t('tokenHidden') }}</p>
+              <footer>
+                <button class="ghost" @click="copySubscriptionURL(item)"><IconCopy/>{{ t('copyLink') }}</button>
+                <button class="ghost" @click="rotateSubscription(item)"><IconRefresh/>{{ t('rotate') }}</button>
+                <button class="ghost" @click="openSubscription(item)"><IconSettings/>{{ t('edit') }}</button>
+                <button class="danger-button" @click="removeSubscription(item)"><IconTrash/></button>
+              </footer>
+            </article>
+          </div>
+          <div v-else class="empty-state subscription-empty"><IconLink/><strong>{{ t('noSubscriptions') }}</strong><span>{{ t('noSubscriptionsHelp') }}</span></div>
+        </section>
+      </template>
     </main>
 
     <div v-if="modalOpen" class="modal-backdrop" @mousedown.self="modalOpen=false">
@@ -360,6 +493,26 @@ onBeforeUnmount(() => {
             </template>
           </div>
           <footer><button type="button" class="cancel" @click="modalOpen=false">{{ t('cancel') }}</button><button class="primary submit" :disabled="loading">{{ loading ? t('saving') : t('createInbound') }}</button></footer>
+        </form>
+      </section>
+    </div>
+
+    <div v-if="subscriptionModalOpen" class="modal-backdrop" @mousedown.self="subscriptionModalOpen=false">
+      <section class="modal subscription-modal" role="dialog" aria-modal="true">
+        <header><div><p>{{ t('subscription') }}</p><h2>{{ subscriptionForm.id ? t('editSubscription') : t('addSubscription') }}</h2></div><button class="close" @click="subscriptionModalOpen=false"><IconX/></button></header>
+        <form @submit.prevent="saveSubscription">
+          <div class="form-grid">
+            <label class="wide"><span>{{ t('subscriptionName') }}</span><input v-model.trim="subscriptionForm.name" :placeholder="t('subscriptionNamePlaceholder')" required autofocus /></label>
+            <label><span>{{ t('enabled') }}</span><button type="button" :class="['switch', { on: subscriptionForm.enabled }]" @click="subscriptionForm.enabled=!subscriptionForm.enabled"><i></i>{{ subscriptionForm.enabled ? t('enabled') : t('disabled') }}</button></label>
+            <fieldset class="wide node-picker">
+              <legend>{{ t('selectNodes') }}</legend>
+              <label v-for="item in items" :key="item.id" :class="{ selected: subscriptionForm.inboundIds.includes(item.id) }">
+                <input type="checkbox" :checked="subscriptionForm.inboundIds.includes(item.id)" @change="toggleSubscriptionNode(item.id)" />
+                <span><strong>{{ item.remark }}</strong><small>{{ item.protocol.toUpperCase() }} · {{ item.listen }}:{{ item.port }}</small></span>
+              </label>
+            </fieldset>
+          </div>
+          <footer><button type="button" class="cancel" @click="subscriptionModalOpen=false">{{ t('cancel') }}</button><button class="primary submit" :disabled="loading || !subscriptionForm.inboundIds.length">{{ loading ? t('saving') : t('saveSubscription') }}</button></footer>
         </form>
       </section>
     </div>

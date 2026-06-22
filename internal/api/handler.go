@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -15,6 +18,7 @@ import (
 	"xpanel/internal/configcompiler"
 	"xpanel/internal/inbound"
 	"xpanel/internal/runtime"
+	"xpanel/internal/subscription"
 	webui "xpanel/web"
 )
 
@@ -36,16 +40,21 @@ type authService interface {
 }
 
 type Handler struct {
-	service   inboundService
-	auth      authService
-	compiler  *configcompiler.Compiler
-	validator runtime.Validator
-	applier   configApplier
-	logger    *slog.Logger
+	service       inboundService
+	auth          authService
+	compiler      *configcompiler.Compiler
+	validator     runtime.Validator
+	applier       configApplier
+	logger        *slog.Logger
+	subscriptions *subscription.Service
 }
 
-func New(service inboundService, auth authService, compiler *configcompiler.Compiler, validator runtime.Validator, applier configApplier, logger *slog.Logger) *Handler {
-	return &Handler{service: service, auth: auth, compiler: compiler, validator: validator, applier: applier, logger: logger}
+func New(service inboundService, auth authService, compiler *configcompiler.Compiler, validator runtime.Validator, applier configApplier, logger *slog.Logger, subscriptions ...*subscription.Service) *Handler {
+	handler := &Handler{service: service, auth: auth, compiler: compiler, validator: validator, applier: applier, logger: logger}
+	if len(subscriptions) > 0 {
+		handler.subscriptions = subscriptions[0]
+	}
+	return handler
 }
 
 func (h *Handler) Routes() http.Handler {
@@ -56,15 +65,147 @@ func (h *Handler) Routes() http.Handler {
 	r.Post("/api/v1/auth/setup", h.setup)
 	r.Post("/api/v1/auth/login", h.login)
 	r.Post("/api/v1/auth/logout", h.logout)
+	if h.subscriptions != nil {
+		r.Get("/sub/{token}", h.publicSubscription)
+	}
 	r.Group(func(protected chi.Router) {
 		protected.Use(h.requireAuth)
 		protected.Get("/api/v1/inbounds", h.listInbounds)
 		protected.Post("/api/v1/inbounds", h.createInbound)
 		protected.Post("/api/v1/config/preview", h.previewConfig)
 		protected.Post("/api/v1/config/apply", h.applyConfig)
+		if h.subscriptions != nil {
+			protected.Get("/api/v1/subscriptions", h.listSubscriptions)
+			protected.Post("/api/v1/subscriptions", h.createSubscription)
+			protected.Put("/api/v1/subscriptions/{id}", h.updateSubscription)
+			protected.Post("/api/v1/subscriptions/{id}/rotate", h.rotateSubscription)
+			protected.Delete("/api/v1/subscriptions/{id}", h.deleteSubscription)
+		}
 	})
 	r.Handle("/*", webui.Handler())
 	return r
+}
+
+func (h *Handler) listSubscriptions(w http.ResponseWriter, r *http.Request) {
+	items, err := h.subscriptions.List(r.Context())
+	if err != nil {
+		h.internalError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (h *Handler) createSubscription(w http.ResponseWriter, r *http.Request) {
+	var input subscription.Input
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, token, err := h.subscriptions.Create(r.Context(), input)
+	if err != nil {
+		h.writeSubscriptionError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"subscription": item, "url": subscriptionURL(r, token)})
+}
+
+func (h *Handler) updateSubscription(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var input subscription.Input
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := h.subscriptions.Update(r.Context(), id, input)
+	if err != nil {
+		h.writeSubscriptionError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) rotateSubscription(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	item, token, err := h.subscriptions.Rotate(r.Context(), id)
+	if err != nil {
+		h.writeSubscriptionError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"subscription": item, "url": subscriptionURL(r, token)})
+}
+
+func (h *Handler) deleteSubscription(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := h.subscriptions.Delete(r.Context(), id); err != nil {
+		h.writeSubscriptionError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) publicSubscription(w http.ResponseWriter, r *http.Request) {
+	item, nodes, err := h.subscriptions.Resolve(r.Context(), chi.URLParam(r, "token"))
+	if err != nil {
+		if errors.Is(err, subscription.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "subscription_not_found", "subscription not found")
+			return
+		}
+		h.internalError(w, r, err)
+		return
+	}
+	host := r.Host
+	if value, _, splitErr := net.SplitHostPort(r.Host); splitErr == nil {
+		host = value
+	}
+	document := subscription.BuildPublicDocument(item, nodes, host)
+	expire := int64(0)
+	if value, parseErr := time.Parse(time.RFC3339, document.ExpiryTime); parseErr == nil {
+		expire = value.Unix()
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Expose-Headers", "Subscription-Userinfo, Profile-Update-Interval")
+	w.Header().Set("Profile-Update-Interval", "1")
+	w.Header().Set("Subscription-Userinfo", fmt.Sprintf("upload=0; download=%d; total=%d; expire=%d", document.UsedBytes, document.TotalBytes, expire))
+	writeJSON(w, http.StatusOK, document)
+}
+
+func (h *Handler) writeSubscriptionError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, subscription.ErrInvalidInput):
+		writeError(w, http.StatusUnprocessableEntity, "subscription_validation_failed", err.Error())
+	case errors.Is(err, subscription.ErrNotFound):
+		writeError(w, http.StatusNotFound, "subscription_not_found", "subscription not found")
+	default:
+		h.internalError(w, r, err)
+	}
+}
+
+func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid_id", "invalid resource ID")
+		return 0, false
+	}
+	return id, true
+}
+
+func subscriptionURL(r *http.Request, token string) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if forwarded := r.Header.Get("X-Forwarded-Proto"); forwarded == "http" || forwarded == "https" {
+		scheme = forwarded
+	}
+	return scheme + "://" + r.Host + "/sub/" + token
 }
 
 func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {

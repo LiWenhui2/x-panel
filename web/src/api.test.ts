@@ -23,5 +23,10 @@ describe('api client', () => {
 
     await expect(api.preview()).rejects.toThrow('validation failed')
   })
-})
 
+  it('accepts empty delete subscription responses', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 204 }))
+    await expect(api.deleteSubscription(7)).resolves.toBeUndefined()
+    expect(fetch).toHaveBeenCalledWith('/api/v1/subscriptions/7', expect.objectContaining({ method: 'DELETE' }))
+  })
+})

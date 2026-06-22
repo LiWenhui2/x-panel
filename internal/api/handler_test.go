@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,6 +16,8 @@ import (
 	"xpanel/internal/configcompiler"
 	"xpanel/internal/inbound"
 	"xpanel/internal/runtime"
+	"xpanel/internal/storage/sqlite"
+	"xpanel/internal/subscription"
 )
 
 type memoryService struct{ items []inbound.Inbound }
@@ -146,5 +149,51 @@ func TestAuthStatus(t *testing.T) {
 	}
 	if !payload.NeedsSetup {
 		t.Fatal("expected setup to be required")
+	}
+}
+
+func TestPublicSubscriptionDocument(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "subscription-api.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	inboundService := inbound.NewService(store)
+	node, err := inboundService.Create(ctx, inbound.CreateInput{
+		Remark: "Public node", Listen: "0.0.0.0", Port: 31443, Protocol: inbound.ProtocolVLESS,
+		Network: inbound.NetworkTCP, Security: inbound.SecurityNone,
+		ClientID: "44444444-4444-4444-8444-444444444444", Email: "public@example.com", Enabled: true,
+		TotalBytes: 1024,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscriptionService := subscription.NewService(store, inboundService)
+	_, token, err := subscriptionService.Create(ctx, subscription.Input{Name: "Client feed", Enabled: true, InboundIDs: []int64{node.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authMock := &memoryAuth{setup: true}
+	handler := New(inboundService, authMock, configcompiler.New(), runtime.JSONValidator{}, &memoryApplier{}, slog.New(slog.NewTextHandler(io.Discard, nil)), subscriptionService).Routes()
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	response, err := server.Client().Get(server.URL + "/sub/" + token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected status: %d", response.StatusCode)
+	}
+	if response.Header.Get("Subscription-Userinfo") == "" {
+		t.Fatal("missing subscription traffic header")
+	}
+	var document subscription.PublicDocument
+	if err := json.NewDecoder(response.Body).Decode(&document); err != nil {
+		t.Fatal(err)
+	}
+	if document.Name != "Client feed" || len(document.Nodes) != 1 || document.Nodes[0].ShareLink == "" {
+		t.Fatalf("unexpected document: %#v", document)
 	}
 }

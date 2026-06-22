@@ -8,6 +8,7 @@ import (
 
 	"xpanel/internal/auth"
 	"xpanel/internal/inbound"
+	"xpanel/internal/subscription"
 )
 
 func TestStoreCreateAndList(t *testing.T) {
@@ -44,6 +45,49 @@ func TestStoreCreateAndList(t *testing.T) {
 	items, err = store.List(context.Background())
 	if err != nil || items[0].UsedBytes != 3072 {
 		t.Fatalf("traffic usage not accumulated: %#v, %v", items, err)
+	}
+}
+
+func TestSubscriptionLifecycle(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "subscriptions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	inboundService := inbound.NewService(store)
+	node, err := inboundService.Create(ctx, inbound.CreateInput{
+		Remark: "subscription-node", Listen: "0.0.0.0", Port: 30443, Protocol: inbound.ProtocolVLESS,
+		Network: inbound.NetworkTCP, Security: inbound.SecurityNone,
+		ClientID: "33333333-3333-4333-8333-333333333333", Email: "subscription@example.com", Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := subscription.NewService(store, inboundService)
+	created, token, err := service.Create(ctx, subscription.Input{Name: "Primary", Enabled: true, InboundIDs: []int64{node.ID}})
+	if err != nil || token == "" {
+		t.Fatalf("create subscription: %v", err)
+	}
+	if _, nodes, err := service.Resolve(ctx, token); err != nil || len(nodes) != 1 {
+		t.Fatalf("resolve subscription: nodes=%#v err=%v", nodes, err)
+	}
+	updated, err := service.Update(ctx, created.ID, subscription.Input{Name: "Updated", Enabled: true, InboundIDs: []int64{node.ID}})
+	if err != nil || updated.Name != "Updated" {
+		t.Fatalf("update subscription: %#v %v", updated, err)
+	}
+	_, replacement, err := service.Rotate(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.Resolve(ctx, token); !errors.Is(err, subscription.ErrNotFound) {
+		t.Fatalf("old token should be revoked, got %v", err)
+	}
+	if _, _, err := service.Resolve(ctx, replacement); err != nil {
+		t.Fatalf("replacement token should work, got %v", err)
+	}
+	if err := service.Delete(ctx, created.ID); err != nil {
+		t.Fatal(err)
 	}
 }
 

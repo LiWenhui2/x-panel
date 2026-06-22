@@ -3,7 +3,9 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 
 	"xpanel/internal/auth"
 	"xpanel/internal/inbound"
+	"xpanel/internal/subscription"
 )
 
 type Store struct{ db *sql.DB }
@@ -71,6 +74,21 @@ CREATE TABLE IF NOT EXISTS sessions (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   expires_at TEXT NOT NULL,
   created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  token_hint TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS subscription_inbounds (
+  subscription_id INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+  inbound_id INTEGER NOT NULL REFERENCES inbounds(id) ON DELETE CASCADE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (subscription_id, inbound_id)
 );`)
 	if err != nil {
 		return fmt.Errorf("migrate sqlite: %w", err)
@@ -242,4 +260,150 @@ func (s *Store) AddUsedBytes(ctx context.Context, id, delta int64) error {
 	}
 	_, err := s.db.ExecContext(ctx, `UPDATE inbounds SET used_bytes = used_bytes + ? WHERE id = ?`, delta, id)
 	return err
+}
+
+func (s *Store) ListSubscriptions(ctx context.Context) ([]subscription.Subscription, error) {
+	rows, err := s.db.QueryContext(ctx, subscriptionSelect+` GROUP BY s.id ORDER BY s.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []subscription.Subscription{}
+	for rows.Next() {
+		item, err := scanSubscription(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) CreateSubscription(ctx context.Context, item subscription.Subscription, tokenHash string) (subscription.Subscription, error) {
+	now := time.Now().UTC()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return subscription.Subscription{}, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `INSERT INTO subscriptions (name, token_hash, token_hint, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		item.Name, tokenHash, item.TokenHint, item.Enabled, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
+	if err != nil {
+		return subscription.Subscription{}, err
+	}
+	item.ID, err = result.LastInsertId()
+	if err != nil {
+		return subscription.Subscription{}, err
+	}
+	if err = replaceSubscriptionInbounds(ctx, tx, item.ID, item.InboundIDs); err != nil {
+		return subscription.Subscription{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return subscription.Subscription{}, err
+	}
+	item.CreatedAt, item.UpdatedAt = now, now
+	return item, nil
+}
+
+func (s *Store) UpdateSubscription(ctx context.Context, id int64, input subscription.Input) (subscription.Subscription, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return subscription.Subscription{}, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE subscriptions SET name = ?, enabled = ?, updated_at = ? WHERE id = ?`,
+		input.Name, input.Enabled, time.Now().UTC().Format(time.RFC3339Nano), id)
+	if err != nil {
+		return subscription.Subscription{}, err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return subscription.Subscription{}, subscription.ErrNotFound
+	}
+	if err = replaceSubscriptionInbounds(ctx, tx, id, input.InboundIDs); err != nil {
+		return subscription.Subscription{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return subscription.Subscription{}, err
+	}
+	return s.getSubscriptionByID(ctx, id)
+}
+
+func (s *Store) RotateSubscriptionToken(ctx context.Context, id int64, tokenHash, hint string) (subscription.Subscription, error) {
+	result, err := s.db.ExecContext(ctx, `UPDATE subscriptions SET token_hash = ?, token_hint = ?, updated_at = ? WHERE id = ?`,
+		tokenHash, hint, time.Now().UTC().Format(time.RFC3339Nano), id)
+	if err != nil {
+		return subscription.Subscription{}, err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return subscription.Subscription{}, subscription.ErrNotFound
+	}
+	return s.getSubscriptionByID(ctx, id)
+}
+
+func (s *Store) DeleteSubscription(ctx context.Context, id int64) error {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM subscriptions WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return subscription.ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) FindSubscriptionByTokenHash(ctx context.Context, tokenHash string) (subscription.Subscription, error) {
+	item, err := scanSubscription(s.db.QueryRowContext(ctx, subscriptionSelect+` WHERE s.token_hash = ? GROUP BY s.id`, tokenHash))
+	if errors.Is(err, sql.ErrNoRows) {
+		return subscription.Subscription{}, subscription.ErrNotFound
+	}
+	return item, err
+}
+
+const subscriptionSelect = `
+SELECT s.id, s.name, s.enabled, s.token_hint, s.created_at, s.updated_at,
+       COALESCE(GROUP_CONCAT(si.inbound_id, ','), '')
+FROM subscriptions s
+LEFT JOIN subscription_inbounds si ON si.subscription_id = s.id`
+
+type rowScanner interface{ Scan(...any) error }
+
+func scanSubscription(scanner rowScanner) (subscription.Subscription, error) {
+	var item subscription.Subscription
+	var createdAt, updatedAt, inboundIDs string
+	if err := scanner.Scan(&item.ID, &item.Name, &item.Enabled, &item.TokenHint, &createdAt, &updatedAt, &inboundIDs); err != nil {
+		return subscription.Subscription{}, err
+	}
+	item.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
+	item.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAt)
+	if inboundIDs != "" {
+		for _, value := range strings.Split(inboundIDs, ",") {
+			id, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return subscription.Subscription{}, err
+			}
+			item.InboundIDs = append(item.InboundIDs, id)
+		}
+	}
+	return item, nil
+}
+
+func (s *Store) getSubscriptionByID(ctx context.Context, id int64) (subscription.Subscription, error) {
+	item, err := scanSubscription(s.db.QueryRowContext(ctx, subscriptionSelect+` WHERE s.id = ? GROUP BY s.id`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return subscription.Subscription{}, subscription.ErrNotFound
+	}
+	return item, err
+}
+
+func replaceSubscriptionInbounds(ctx context.Context, tx *sql.Tx, subscriptionID int64, inboundIDs []int64) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM subscription_inbounds WHERE subscription_id = ?`, subscriptionID); err != nil {
+		return err
+	}
+	for index, inboundID := range inboundIDs {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO subscription_inbounds (subscription_id, inbound_id, sort_order) VALUES (?, ?, ?)`,
+			subscriptionID, inboundID, index); err != nil {
+			return err
+		}
+	}
+	return nil
 }
