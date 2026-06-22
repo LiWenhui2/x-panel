@@ -1,44 +1,57 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
-  IconAlertCircle, IconCheck, IconCode, IconCopy, IconDownload, IconEye,
-  IconKey, IconLink, IconLock, IconLogout, IconPlus, IconRefresh, IconRocket, IconServer,
-  IconSettings, IconShieldCheck, IconTrash, IconX,
+  IconAlertCircle, IconChartDonut, IconCheck, IconCopy, IconCpu, IconDashboard, IconDatabase,
+  IconDownload, IconEdit, IconKey, IconLink, IconLock, IconLogout, IconPlus, IconRefresh,
+  IconRocket, IconServer, IconSettings, IconShieldCheck, IconTrash, IconUpload, IconUserCog, IconX,
 } from '@tabler/icons-vue'
-import { api, type CreateInbound, type Inbound, type Subscription } from './api'
+import {
+  api,
+  type CreateInbound,
+  type Inbound,
+  type Settings,
+  type Subscription,
+  type SystemStatus,
+} from './api'
 import { messages, type Language, type MessageKey } from './i18n'
 import { buildShareLink } from './share'
 
+type View = 'overview' | 'inbounds' | 'subscriptions' | 'settings'
 type FormState = CreateInbound & { totalGB: number; expiryLocal: string }
 
 const items = ref<Inbound[]>([])
+const subscriptions = ref<Subscription[]>([])
+const systemStatus = ref<SystemStatus | null>(null)
+const panelSettings = ref<Settings | null>(null)
 const error = ref('')
 const message = ref('')
 const username = ref('')
 const authenticated = ref(false)
 const needsSetup = ref(false)
 const loading = ref(false)
+const loadingNodes = ref(false)
 const modalOpen = ref(false)
-const previewOpen = ref(false)
 const shareOpen = ref(false)
-const preview = ref('')
-const previewHash = ref('')
+const subscriptionModalOpen = ref(false)
+const editingInboundId = ref<number | null>(null)
+const activeView = ref<View>('overview')
+const restartNeeded = ref(false)
 const shareLink = ref('')
 const shareRemark = ref('')
 const shareExpiry = ref('')
 const shareTotal = ref(0)
 const shareUsed = ref(0)
 const shareRemaining = ref(0)
-const activeView = ref<'inbounds' | 'subscriptions'>('inbounds')
-const subscriptions = ref<Subscription[]>([])
-const subscriptionModalOpen = ref(false)
 const subscriptionURLs = reactive<Record<number, string>>({})
 const subscriptionForm = reactive({ id: 0, name: '', enabled: true, inboundIds: [] as number[] })
-const authForm = reactive({ username: 'admin', password: '' })
-const language = ref<Language>((localStorage.getItem('xpanel-language') as Language) === 'zh' ? 'zh' : 'en')
+const authForm = reactive({ username: '', password: '' })
+const settingsForm = reactive({ port: 0, username: '', password: '' })
+const language = ref<Language>((localStorage.getItem('xpanel-language') as Language) === 'en' ? 'en' : 'zh')
 const gib = 1024 ** 3
 const form = reactive<FormState>(newForm())
 let sessionTimer: number | undefined
+let statusTimer: number | undefined
+let toastTimer: number | undefined
 
 const totalQuota = computed(() => items.value.reduce((sum, item) => sum + item.totalBytes, 0))
 const enabledCount = computed(() => items.value.filter(item => item.enabled).length)
@@ -55,19 +68,68 @@ function setLanguage(value: Language) {
   document.documentElement.lang = value === 'zh' ? 'zh-CN' : 'en'
 }
 
+function notify(text: string) { message.value = text }
+function fail(text: string) { error.value = text }
+
+watch([message, error], () => {
+  if (toastTimer) window.clearTimeout(toastTimer)
+  if (!message.value && !error.value) return
+  toastTimer = window.setTimeout(() => {
+    message.value = ''
+    error.value = ''
+  }, 3000)
+})
+
 function newForm(): FormState {
   return {
-    remark: '', listen: window.location.hostname || '0.0.0.0', port: randomPort(), protocol: 'vless',
-    network: 'tcp', security: 'none', clientId: makeUUID(),
-    email: `client-${Date.now()}@xpanel.local`, enabled: true, totalBytes: 0,
-    expiryTime: '', alterId: 0, sniffing: true, wsPath: '/xpanel',
-    tlsCertFile: '', tlsKeyFile: '', totalGB: 0, expiryLocal: '2099-12-31T23:59',
+    remark: '',
+    listen: '0.0.0.0',
+    port: randomPort(),
+    protocol: 'vless',
+    network: 'tcp',
+    security: 'none',
+    clientId: makeUUID(),
+    email: `client-${Date.now()}@xpanel.local`,
+    enabled: true,
+    totalBytes: 0,
+    expiryTime: '',
+    alterId: 0,
+    sniffing: true,
+    wsPath: '/xpanel',
+    tlsCertFile: '',
+    tlsKeyFile: '',
+    totalGB: 0,
+    expiryLocal: '2099-12-31T23:59',
   }
 }
 
 function randomPort() { return Math.floor(Math.random() * 40000) + 20000 }
-function resetForm() { Object.assign(form, newForm()) }
+function resetForm() { Object.assign(form, newForm()); editingInboundId.value = null }
 function openCreate() { resetForm(); error.value = ''; modalOpen.value = true }
+function openEdit(item: Inbound) {
+  editingInboundId.value = item.id
+  Object.assign(form, {
+    remark: item.remark,
+    listen: item.listen,
+    port: item.port,
+    protocol: item.protocol,
+    network: item.network,
+    security: item.security,
+    clientId: item.clientId,
+    email: item.email,
+    enabled: item.enabled,
+    totalBytes: item.totalBytes,
+    expiryTime: item.expiryTime,
+    alterId: item.alterId,
+    sniffing: item.sniffing,
+    wsPath: item.wsPath || '/xpanel',
+    tlsCertFile: item.tlsCertFile,
+    tlsKeyFile: item.tlsKeyFile,
+    totalGB: item.totalBytes ? Number((item.totalBytes / gib).toFixed(2)) : 0,
+    expiryLocal: toLocalInput(item.expiryTime),
+  })
+  modalOpen.value = true
+}
 function generateUUID() { form.clientId = makeUUID() }
 
 function makeUUID() {
@@ -88,9 +150,13 @@ async function loadStatus() {
     authenticated.value = status.authenticated
     needsSetup.value = status.needsSetup
     username.value = status.username || ''
-    if (authenticated.value) await refresh()
+    settingsForm.username = status.username || ''
+    if (authenticated.value) {
+      await Promise.all([refresh(), refreshSystem(), loadSettings()])
+      startStatusPolling()
+    }
   } catch (cause) {
-    error.value = errorText(cause)
+    fail(errorText(cause))
   }
 }
 
@@ -100,13 +166,13 @@ async function verifySession() {
     const status = await api.authStatus()
     if (status.authenticated) return
     authenticated.value = false
+    stopStatusPolling()
     username.value = ''
     items.value = []
     authForm.password = ''
-    message.value = ''
-    error.value = t('sessionExpired')
+    fail(t('sessionExpired'))
   } catch {
-    // A brief service restart should not sign the user out until the server responds.
+    // Keep the user in place during brief restarts.
   }
 }
 
@@ -118,11 +184,13 @@ async function submitAuth() {
     const result = wasSetup ? await api.setup(authForm) : await api.login(authForm)
     authenticated.value = result.authenticated
     username.value = result.username
+    settingsForm.username = result.username
     needsSetup.value = false
-    message.value = wasSetup ? t('adminCreated') : t('signedIn')
-    await refresh()
+    notify(wasSetup ? t('adminCreated') : t('signedIn'))
+    await Promise.all([refresh(), refreshSystem(), loadSettings()])
+    startStatusPolling()
   } catch (cause) {
-    error.value = errorText(cause)
+    fail(errorText(cause))
   } finally {
     loading.value = false
   }
@@ -131,24 +199,51 @@ async function submitAuth() {
 async function logout() {
   await api.logout()
   authenticated.value = false
+  stopStatusPolling()
   items.value = []
+  systemStatus.value = null
 }
 
 async function refresh() {
   error.value = ''
+  loadingNodes.value = true
   try { items.value = (await api.list()).items }
-  catch (cause) { error.value = errorText(cause) }
+  catch (cause) { fail(errorText(cause)) }
+  finally { loadingNodes.value = false }
+}
+
+async function refreshSystem() {
+  try { systemStatus.value = await api.systemStatus() }
+  catch (cause) { fail(errorText(cause)) }
+}
+
+async function loadSettings() {
+  try {
+    panelSettings.value = await api.settings()
+    settingsForm.port = panelSettings.value.port || Number(window.location.port) || 8080
+  } catch (cause) {
+    fail(errorText(cause))
+  }
+}
+
+function startStatusPolling() {
+  stopStatusPolling()
+  statusTimer = window.setInterval(() => void refreshSystem(), 5000)
+}
+function stopStatusPolling() {
+  if (statusTimer !== undefined) window.clearInterval(statusTimer)
+  statusTimer = undefined
 }
 
 async function showSubscriptions() {
   activeView.value = 'subscriptions'
-  await refreshSubscriptions()
+  if (!subscriptions.value.length) await refreshSubscriptions()
 }
 
 async function refreshSubscriptions() {
   error.value = ''
   try { subscriptions.value = (await api.subscriptions()).items }
-  catch (cause) { error.value = errorText(cause) }
+  catch (cause) { fail(errorText(cause)) }
 }
 
 function openSubscription(item?: Subscription) {
@@ -172,15 +267,15 @@ async function saveSubscription() {
     const input = { name: subscriptionForm.name, enabled: subscriptionForm.enabled, inboundIds: subscriptionForm.inboundIds }
     if (subscriptionForm.id) {
       await api.updateSubscription(subscriptionForm.id, input)
-      message.value = t('subscriptionUpdated')
+      notify(t('subscriptionUpdated'))
     } else {
       const result = await api.createSubscription(input)
       subscriptionURLs[result.subscription.id] = result.url
-      message.value = t('subscriptionCreated')
+      notify(t('subscriptionCreated'))
     }
     subscriptionModalOpen.value = false
     await refreshSubscriptions()
-  } catch (cause) { error.value = errorText(cause) }
+  } catch (cause) { fail(errorText(cause)) }
   finally { loading.value = false }
 }
 
@@ -191,20 +286,20 @@ async function rotateSubscription(item: Subscription) {
     const result = await api.rotateSubscription(item.id)
     subscriptionURLs[item.id] = result.url
     await copyText(result.url)
-    message.value = t('subscriptionRotated')
+    notify(t('subscriptionRotated'))
     await refreshSubscriptions()
-  } catch (cause) { error.value = errorText(cause) }
+  } catch (cause) { fail(errorText(cause)) }
   finally { loading.value = false }
 }
 
 async function copySubscriptionURL(item: Subscription) {
   const value = subscriptionURLs[item.id]
   if (!value) {
-    error.value = t('rotateToReveal')
+    fail(t('rotateToReveal'))
     return
   }
   await copyText(value)
-  message.value = t('subscriptionCopied')
+  notify(t('subscriptionCopied'))
 }
 
 async function removeSubscription(item: Subscription) {
@@ -213,54 +308,79 @@ async function removeSubscription(item: Subscription) {
   try {
     await api.deleteSubscription(item.id)
     delete subscriptionURLs[item.id]
-    message.value = t('subscriptionDeleted')
+    notify(t('subscriptionDeleted'))
     await refreshSubscriptions()
-  } catch (cause) { error.value = errorText(cause) }
+  } catch (cause) { fail(errorText(cause)) }
   finally { loading.value = false }
 }
 
-async function createInbound() {
+function formPayload(): CreateInbound {
+  return {
+    remark: form.remark,
+    listen: form.listen,
+    port: form.port,
+    protocol: form.protocol,
+    network: form.network,
+    security: form.security,
+    clientId: form.clientId,
+    email: form.email,
+    enabled: form.enabled,
+    totalBytes: Math.round(form.totalGB * gib),
+    expiryTime: form.expiryLocal ? new Date(form.expiryLocal).toISOString() : '',
+    alterId: form.protocol === 'vmess' ? form.alterId : 0,
+    sniffing: form.sniffing,
+    wsPath: form.network === 'ws' ? form.wsPath : '/xpanel',
+    tlsCertFile: form.security === 'tls' ? form.tlsCertFile : '',
+    tlsKeyFile: form.security === 'tls' ? form.tlsKeyFile : '',
+  }
+}
+
+async function saveInbound() {
   loading.value = true
   error.value = ''
   try {
-    const payload: CreateInbound = {
-      remark: form.remark, listen: form.listen, port: form.port,
-      protocol: form.protocol, network: form.network, security: form.security,
-      clientId: form.clientId, email: form.email, enabled: form.enabled,
-      totalBytes: Math.round(form.totalGB * gib),
-      expiryTime: form.expiryLocal ? new Date(form.expiryLocal).toISOString() : '',
-      alterId: form.protocol === 'vmess' ? form.alterId : 0,
-      sniffing: form.sniffing, wsPath: form.network === 'ws' ? form.wsPath : '/xpanel',
-      tlsCertFile: form.security === 'tls' ? form.tlsCertFile : '',
-      tlsKeyFile: form.security === 'tls' ? form.tlsKeyFile : '',
-    }
-    const created = await api.create(payload)
+    const payload = formPayload()
+    const saved = editingInboundId.value
+      ? await api.update(editingInboundId.value, payload)
+      : await api.create(payload)
     modalOpen.value = false
-    message.value = t('inboundCreated', { name: created.remark })
+    notify(editingInboundId.value ? t('inboundUpdated', { name: saved.remark }) : t('inboundCreated', { name: saved.remark }))
+    editingInboundId.value = null
     await refresh()
-  } catch (cause) { error.value = errorText(cause) }
+  } catch (cause) { fail(errorText(cause)) }
   finally { loading.value = false }
 }
 
-async function showPreview() {
+async function savePanelPort() {
   loading.value = true
-  error.value = ''
   try {
-    const result = await api.preview()
-    previewHash.value = result.sha256
-    preview.value = JSON.stringify(result.config, null, 2)
-    previewOpen.value = true
-  } catch (cause) { error.value = errorText(cause) }
+    await api.updatePanelPort(settingsForm.port)
+    restartNeeded.value = true
+    notify(t('restartRequired'))
+  } catch (cause) { fail(errorText(cause)) }
   finally { loading.value = false }
 }
 
-async function applyConfig() {
+async function saveAccount() {
   loading.value = true
-  error.value = ''
   try {
-    const result = await api.apply()
-    message.value = t('configApplied', { path: result.configPath })
-  } catch (cause) { error.value = errorText(cause) }
+    await api.updateAccount({ username: settingsForm.username, password: settingsForm.password })
+    username.value = settingsForm.username
+    authForm.username = settingsForm.username
+    authForm.password = ''
+    settingsForm.password = ''
+    restartNeeded.value = true
+    notify(t('restartRequired'))
+  } catch (cause) { fail(errorText(cause)) }
+  finally { loading.value = false }
+}
+
+async function restartPanel() {
+  loading.value = true
+  try {
+    await api.restartPanel()
+    notify(t('restartingPanel'))
+  } catch (cause) { fail(errorText(cause)) }
   finally { loading.value = false }
 }
 
@@ -278,7 +398,7 @@ function exportInbound(item: Inbound) {
 async function copyShareLink(showToast = true) {
   if (!shareLink.value) return
   await copyText(shareLink.value)
-  if (showToast) message.value = t('linkCopied')
+  if (showToast) notify(t('linkCopied'))
 }
 
 function exportAddress(listen: string) {
@@ -309,7 +429,9 @@ function selectShareText(event: FocusEvent) {
 function formatBytes(value: number) {
   if (!value) return t('unlimited')
   if (value >= gib) return `${(value / gib).toFixed(1)} GB`
-  return `${(value / 1024 ** 2).toFixed(1)} MB`
+  if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(1)} MB`
+  if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`
+  return `${value} B`
 }
 function formatBytesExact(value: number) {
   if (!value) return '0 B'
@@ -318,7 +440,23 @@ function formatBytesExact(value: number) {
   if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`
   return `${value} B`
 }
+function formatSpeed(value: number) { return `${formatBytesExact(value)}/s` }
 function formatExpiry(value: string) { return value ? new Date(value).toLocaleString(language.value === 'zh' ? 'zh-CN' : 'en-US') : t('never') }
+function formatUptime(seconds: number) {
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor((seconds % 86400) / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  return days > 0 ? `${days}d ${hours}h ${minutes}m` : `${hours}h ${minutes}m`
+}
+function percent(used: number, total: number) { return total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0 }
+function gaugeStyle(value: number) { return { '--value': `${Math.max(0, Math.min(100, value)) * 3.6}deg` } }
+function toLocalInput(value: string) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const offset = date.getTimezoneOffset() * 60000
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
+}
 function errorText(cause: unknown) { return cause instanceof Error ? cause.message : String(cause) }
 
 onMounted(() => {
@@ -329,6 +467,8 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   if (sessionTimer !== undefined) window.clearInterval(sessionTimer)
+  if (toastTimer !== undefined) window.clearTimeout(toastTimer)
+  stopStatusPolling()
   window.removeEventListener('focus', verifySession)
 })
 </script>
@@ -336,39 +476,38 @@ onBeforeUnmount(() => {
 <template>
   <div v-if="!authenticated" class="auth-page">
     <div class="language-switch auth-language" role="group" aria-label="Language">
-      <button :class="{ active: language === 'en' }" @click="setLanguage('en')">{{ t('english') }}</button>
-      <button :class="{ active: language === 'zh' }" @click="setLanguage('zh')">{{ t('chinese') }}</button>
+      <button :class="{ active: language === 'en' }" @click="setLanguage('en')">EN</button>
+      <button :class="{ active: language === 'zh' }" @click="setLanguage('zh')">中文</button>
     </div>
     <section class="auth-card">
-      <div class="logo-orb"><IconShieldCheck/></div>
+      <div class="logo-orb"><IconShieldCheck /></div>
       <p class="eyebrow">{{ needsSetup ? t('firstRun') : t('signInEyebrow') }}</p>
       <h1>{{ needsSetup ? t('createAdmin') : t('welcome') }}</h1>
-      <p class="auth-copy">
-        {{ needsSetup ? t('setupCopy') : t('signInCopy') }}
-      </p>
+      <p v-if="needsSetup" class="auth-copy">{{ t('setupCopy') }}</p>
       <form @submit.prevent="submitAuth">
         <label><span>{{ t('username') }}</span><input v-model.trim="authForm.username" autocomplete="username" required /></label>
         <label><span>{{ t('password') }}</span><input v-model="authForm.password" type="password" :autocomplete="needsSetup ? 'new-password' : 'current-password'" required /></label>
-        <button class="primary wide" :disabled="loading"><IconLock/>{{ needsSetup ? t('createAccount') : t('signIn') }}</button>
+        <button class="primary wide" :disabled="loading"><IconLock />{{ needsSetup ? t('createAccount') : t('signIn') }}</button>
       </form>
-      <div v-if="error" class="inline-error"><IconAlertCircle/>{{ error }}</div>
+      <div v-if="error" class="inline-error"><IconAlertCircle />{{ error }}</div>
     </section>
   </div>
 
   <div v-else class="app-shell">
     <aside class="sidebar">
-      <div class="brand"><IconRocket/><div><strong>XPanel</strong><small>XRAY OPERATIONS</small></div></div>
+      <div class="brand"><IconRocket /><div><strong>XPanel</strong><small>XRAY OPERATIONS</small></div></div>
       <nav>
-        <a :class="{ active: activeView === 'inbounds' }" href="#" @click.prevent="activeView='inbounds'"><IconServer/><span>{{ t('inbounds') }}</span><b>{{ items.length }}</b></a>
-        <a :class="{ active: activeView === 'subscriptions' }" href="#" @click.prevent="showSubscriptions"><IconLink/><span>{{ t('subscriptions') }}</span><b>{{ subscriptions.length }}</b></a>
+        <a :class="{ active: activeView === 'overview' }" href="#" @click.prevent="activeView='overview'"><IconDashboard /><span>{{ t('overview') }}</span></a>
+        <a :class="{ active: activeView === 'inbounds' }" href="#" @click.prevent="activeView='inbounds'"><IconServer /><span>{{ t('inbounds') }}</span><b>{{ items.length }}</b></a>
+        <a :class="{ active: activeView === 'subscriptions' }" href="#" @click.prevent="showSubscriptions"><IconLink /><span>{{ t('subscriptions') }}</span><b>{{ subscriptions.length }}</b></a>
+        <a :class="{ active: activeView === 'settings' }" href="#" @click.prevent="activeView='settings'"><IconSettings /><span>{{ t('settings') }}</span></a>
       </nav>
-      <button class="logout" @click="logout"><IconLogout/>{{ t('signOut') }}</button>
+      <button class="logout" @click="logout"><IconLogout />{{ t('signOut') }}</button>
     </aside>
 
     <main class="content">
-      <template v-if="activeView === 'inbounds'">
-      <header class="page-header">
-        <div><p>{{ t('signedInAs', { name: username }) }}</p><h1>{{ t('nodeConsole') }}</h1></div>
+      <header class="topbar">
+        <div class="topbar-user"><span>{{ t('signedInAs', { name: username }) }}</span></div>
         <div class="header-actions">
           <div class="language-switch" role="group" aria-label="Language">
             <button :class="{ active: language === 'en' }" @click="setLanguage('en')">EN</button>
@@ -378,69 +517,90 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <div v-if="error" class="toast error"><IconAlertCircle/>{{ error }}<button @click="error=''">×</button></div>
-      <div v-if="message" class="toast success"><IconCheck/>{{ message }}<button @click="message=''">×</button></div>
+      <div v-if="error" class="toast error"><IconAlertCircle />{{ error }}<button @click="error=''">×</button></div>
+      <div v-if="message" class="toast success"><IconCheck />{{ message }}<button @click="message=''">×</button></div>
 
-      <section class="summary-grid">
-        <article><span>{{ t('totalInbounds') }}</span><strong>{{ items.length }}</strong><small>{{ t('configuredListeners') }}</small></article>
-        <article><span>{{ t('enabled') }}</span><strong>{{ enabledCount }}</strong><small>{{ t('activeRecords') }}</small></article>
-        <article><span>{{ t('trafficQuota') }}</span><strong>{{ formatBytes(totalQuota) }}</strong><small>{{ t('zeroUnlimited') }}</small></article>
-      </section>
-
-      <section class="table-panel">
-        <div class="table-toolbar">
-          <div><h2>{{ t('inboundNodes') }}</h2><p>{{ t('inboundHelp') }}</p></div>
-          <div class="toolbar-actions">
-            <button class="ghost" :disabled="loading" @click="refresh"><IconRefresh/>{{ t('refresh') }}</button>
-            <button class="ghost" :disabled="loading || !items.length" @click="showPreview"><IconCode/>{{ t('preview') }}</button>
-            <button class="ghost" :disabled="loading || !items.length" @click="applyConfig"><IconCheck/>{{ t('applyConfig') }}</button>
-            <button class="primary" @click="openCreate"><IconPlus/>{{ t('addInbound') }}</button>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>{{ t('status') }}</th><th>{{ t('remark') }}</th><th>{{ t('protocol') }}</th><th>{{ t('listen') }}</th><th>{{ t('port') }}</th><th>{{ t('transport') }}</th><th>{{ t('quota') }}</th><th>{{ t('expires') }}</th><th>{{ t('export') }}</th><th>{{ t('config') }}</th></tr></thead>
-            <tbody>
-              <tr v-for="item in items" :key="item.id">
-                <td><span :class="['state-dot', { off: !item.enabled }]"></span>{{ item.enabled ? t('enabled') : t('disabled') }}</td>
-                <td><strong>{{ item.remark }}</strong><small>{{ item.tag }}</small></td>
-                <td><span class="protocol">{{ item.protocol }}</span></td>
-                <td><code>{{ item.listen }}</code></td>
-                <td><code>{{ item.port }}</code></td>
-                <td><span class="transport">{{ item.network }}</span><em v-if="item.security==='tls'">TLS</em></td>
-                <td>{{ formatBytes(item.totalBytes) }}</td>
-                <td>{{ formatExpiry(item.expiryTime) }}</td>
-                <td><button class="icon-button" :title="t('exportTitle')" @click="exportInbound(item)"><IconDownload/></button></td>
-                <td><button class="icon-button" :title="t('previewTitle')" @click="showPreview"><IconEye/></button></td>
-              </tr>
-              <tr v-if="!items.length"><td colspan="10" class="empty-state"><IconServer/><strong>{{ t('noNodes') }}</strong><span>{{ t('noNodesHelp') }}</span></td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <template v-if="activeView === 'overview'">
+        <section class="summary-grid">
+          <article><span>{{ t('totalInbounds') }}</span><strong>{{ items.length }}</strong><small>{{ t('configuredListeners') }}</small></article>
+          <article><span>{{ t('enabled') }}</span><strong>{{ enabledCount }}</strong><small>{{ t('activeRecords') }}</small></article>
+          <article><span>{{ t('trafficQuota') }}</span><strong>{{ formatBytes(totalQuota) }}</strong><small>{{ t('zeroUnlimited') }}</small></article>
+        </section>
+        <section class="gauge-grid">
+          <article class="gauge-card">
+            <div class="gauge" :style="gaugeStyle(systemStatus?.cpuPercent || 0)"><strong>{{ Math.round(systemStatus?.cpuPercent || 0) }}%</strong></div>
+            <div><IconCpu /><span>{{ t('cpu') }}</span><small>{{ t('loadAverage') }} {{ systemStatus?.load1.toFixed(2) || '0.00' }} / {{ systemStatus?.load5.toFixed(2) || '0.00' }} / {{ systemStatus?.load15.toFixed(2) || '0.00' }}</small></div>
+          </article>
+          <article class="gauge-card">
+            <div class="gauge" :style="gaugeStyle(percent(systemStatus?.memory.used || 0, systemStatus?.memory.total || 0))"><strong>{{ percent(systemStatus?.memory.used || 0, systemStatus?.memory.total || 0) }}%</strong></div>
+            <div><IconChartDonut /><span>{{ t('memory') }}</span><small>{{ formatBytesExact(systemStatus?.memory.used || 0) }} / {{ formatBytesExact(systemStatus?.memory.total || 0) }}</small></div>
+          </article>
+          <article class="gauge-card">
+            <div class="gauge" :style="gaugeStyle(percent(systemStatus?.disk.used || 0, systemStatus?.disk.total || 0))"><strong>{{ percent(systemStatus?.disk.used || 0, systemStatus?.disk.total || 0) }}%</strong></div>
+            <div><IconDatabase /><span>{{ t('disk') }}</span><small>{{ formatBytesExact(systemStatus?.disk.used || 0) }} / {{ formatBytesExact(systemStatus?.disk.total || 0) }}</small></div>
+          </article>
+          <article class="gauge-card">
+            <div class="gauge" :style="gaugeStyle(percent(systemStatus?.swap.used || 0, systemStatus?.swap.total || 0))"><strong>{{ percent(systemStatus?.swap.used || 0, systemStatus?.swap.total || 0) }}%</strong></div>
+            <div><IconRefresh /><span>{{ t('swap') }}</span><small>{{ formatBytesExact(systemStatus?.swap.used || 0) }} / {{ formatBytesExact(systemStatus?.swap.total || 0) }}</small></div>
+          </article>
+        </section>
+        <section class="detail-grid">
+          <article class="detail-panel">
+            <h2>{{ t('liveTraffic') }}</h2>
+            <div class="metric-row"><IconUpload /><span>{{ t('uploadSpeed') }}</span><strong>{{ formatSpeed(systemStatus?.uploadBps || 0) }}</strong></div>
+            <div class="metric-row"><IconDownload /><span>{{ t('downloadSpeed') }}</span><strong>{{ formatSpeed(systemStatus?.downloadBps || 0) }}</strong></div>
+          </article>
+          <article class="detail-panel">
+            <h2>{{ t('serverDetails') }}</h2>
+            <div class="metric-row"><span>{{ t('uptime') }}</span><strong>{{ formatUptime(systemStatus?.uptime || 0) }}</strong></div>
+            <div class="metric-row"><span>{{ t('platform') }}</span><strong>{{ systemStatus ? `${systemStatus.os}/${systemStatus.arch}` : '-' }}</strong></div>
+            <div class="metric-row"><span>{{ t('collectedAt') }}</span><strong>{{ systemStatus ? new Date(systemStatus.collectedAt).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US') : '-' }}</strong></div>
+          </article>
+        </section>
       </template>
 
-      <template v-else>
-        <header class="page-header">
-          <div><p>{{ t('signedInAs', { name: username }) }}</p><h1>{{ t('subscriptionConsole') }}</h1></div>
-          <div class="header-actions">
-            <div class="language-switch" role="group" aria-label="Language">
-              <button :class="{ active: language === 'en' }" @click="setLanguage('en')">EN</button>
-              <button :class="{ active: language === 'zh' }" @click="setLanguage('zh')">中文</button>
+      <template v-else-if="activeView === 'inbounds'">
+        <section class="table-panel">
+          <div class="table-toolbar">
+            <div><h2>{{ t('inboundNodes') }}</h2></div>
+            <div class="toolbar-actions">
+              <button class="ghost" :disabled="loadingNodes" @click="refresh"><IconRefresh />{{ t('refresh') }}</button>
+              <button class="primary" @click="openCreate"><IconPlus />{{ t('addInbound') }}</button>
             </div>
-            <div class="health"><i></i><span>{{ t('panelOnline') }}</span></div>
           </div>
-        </header>
+          <div v-if="loadingNodes" class="loading-state"><IconRefresh />{{ t('loadingNodes') }}</div>
+          <div v-else class="table-wrap">
+            <table>
+              <thead><tr><th>{{ t('status') }}</th><th>{{ t('remark') }}</th><th>{{ t('protocol') }}</th><th>{{ t('listen') }}</th><th>{{ t('port') }}</th><th>{{ t('transport') }}</th><th>{{ t('quota') }}</th><th>{{ t('expires') }}</th><th>{{ t('actions') }}</th></tr></thead>
+              <tbody>
+                <tr v-for="item in items" :key="item.id">
+                  <td><span :class="['state-dot', { off: !item.enabled }]"></span>{{ item.enabled ? t('enabled') : t('disabled') }}</td>
+                  <td><strong>{{ item.remark }}</strong><small>{{ item.tag }}</small></td>
+                  <td><span class="protocol">{{ item.protocol }}</span></td>
+                  <td><code>{{ item.listen }}</code></td>
+                  <td><code>{{ item.port }}</code></td>
+                  <td><span class="transport">{{ item.network }}</span><em v-if="item.security==='tls'">TLS</em></td>
+                  <td>{{ formatBytes(item.totalBytes) }}</td>
+                  <td>{{ formatExpiry(item.expiryTime) }}</td>
+                  <td class="row-actions">
+                    <button class="icon-button" :title="t('exportTitle')" @click="exportInbound(item)"><IconDownload /></button>
+                    <button class="icon-button" :title="t('edit')" @click="openEdit(item)"><IconEdit /></button>
+                  </td>
+                </tr>
+                <tr v-if="!items.length"><td colspan="9" class="empty-state"><IconServer /><strong>{{ t('noNodes') }}</strong><span>{{ t('noNodesHelp') }}</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </template>
 
-        <div v-if="error" class="toast error"><IconAlertCircle/>{{ error }}<button @click="error=''">×</button></div>
-        <div v-if="message" class="toast success"><IconCheck/>{{ message }}<button @click="message=''">×</button></div>
-
+      <template v-else-if="activeView === 'subscriptions'">
         <section class="table-panel subscription-panel">
           <div class="table-toolbar">
-            <div><h2>{{ t('subscriptionLinks') }}</h2><p>{{ t('subscriptionHelp') }}</p></div>
+            <div><h2>{{ t('subscriptionLinks') }}</h2></div>
             <div class="toolbar-actions">
-              <button class="ghost" :disabled="loading" @click="refreshSubscriptions"><IconRefresh/>{{ t('refresh') }}</button>
-              <button class="primary" :disabled="!items.length" @click="openSubscription()"><IconPlus/>{{ t('addSubscription') }}</button>
+              <button class="ghost" :disabled="loading" @click="refreshSubscriptions"><IconRefresh />{{ t('refresh') }}</button>
+              <button class="primary" :disabled="!items.length" @click="openSubscription()"><IconPlus />{{ t('addSubscription') }}</button>
             </div>
           </div>
           <div v-if="subscriptions.length" class="subscription-grid">
@@ -449,29 +609,54 @@ onBeforeUnmount(() => {
                 <div><span :class="['state-dot', { off: !item.enabled }]"></span><strong>{{ item.name }}</strong></div>
                 <small>{{ item.inboundIds.length }} {{ t('nodes') }}</small>
               </header>
-              <div class="token-row"><IconKey/><code>••••••••{{ item.tokenHint }}</code></div>
+              <div class="token-row"><IconKey /><code>••••••••{{ item.tokenHint }}</code></div>
               <div class="subscription-nodes">
                 <span v-for="id in item.inboundIds" :key="id">{{ items.find(node => node.id === id)?.remark || `#${id}` }}</span>
               </div>
               <p v-if="subscriptionURLs[item.id]" class="fresh-url">{{ subscriptionURLs[item.id] }}</p>
               <p v-else class="url-hint">{{ t('tokenHidden') }}</p>
               <footer>
-                <button class="ghost" @click="copySubscriptionURL(item)"><IconCopy/>{{ t('copyLink') }}</button>
-                <button class="ghost" @click="rotateSubscription(item)"><IconRefresh/>{{ t('rotate') }}</button>
-                <button class="ghost" @click="openSubscription(item)"><IconSettings/>{{ t('edit') }}</button>
-                <button class="danger-button" @click="removeSubscription(item)"><IconTrash/></button>
+                <button class="ghost" @click="copySubscriptionURL(item)"><IconCopy />{{ t('copyLink') }}</button>
+                <button class="ghost" @click="rotateSubscription(item)"><IconRefresh />{{ t('rotate') }}</button>
+                <button class="ghost" @click="openSubscription(item)"><IconEdit />{{ t('edit') }}</button>
+                <button class="danger-button" @click="removeSubscription(item)"><IconTrash /></button>
               </footer>
             </article>
           </div>
-          <div v-else class="empty-state subscription-empty"><IconLink/><strong>{{ t('noSubscriptions') }}</strong><span>{{ t('noSubscriptionsHelp') }}</span></div>
+          <div v-else class="empty-state subscription-empty"><IconLink /><strong>{{ t('noSubscriptions') }}</strong><span>{{ t('noSubscriptionsHelp') }}</span></div>
+        </section>
+      </template>
+
+      <template v-else>
+        <section class="settings-grid">
+          <article class="settings-panel">
+            <header><IconSettings /><h2>{{ t('panelPort') }}</h2></header>
+            <form @submit.prevent="savePanelPort">
+              <label><span>{{ t('port') }}</span><input v-model.number="settingsForm.port" type="number" min="1" max="65535" required /></label>
+              <button class="primary" :disabled="loading"><IconCheck />{{ t('savePort') }}</button>
+            </form>
+          </article>
+          <article class="settings-panel">
+            <header><IconUserCog /><h2>{{ t('accountSecurity') }}</h2></header>
+            <form @submit.prevent="saveAccount">
+              <label><span>{{ t('newUsername') }}</span><input v-model.trim="settingsForm.username" autocomplete="username" required /></label>
+              <label><span>{{ t('newPassword') }}</span><input v-model="settingsForm.password" type="password" autocomplete="new-password" required /></label>
+              <button class="primary" :disabled="loading"><IconCheck />{{ t('saveAccount') }}</button>
+            </form>
+          </article>
+          <article v-if="restartNeeded" class="restart-panel">
+            <IconAlertCircle />
+            <strong>{{ t('restartRequired') }}</strong>
+            <button class="primary" :disabled="loading" @click="restartPanel"><IconRefresh />{{ t('restartPanel') }}</button>
+          </article>
         </section>
       </template>
     </main>
 
     <div v-if="modalOpen" class="modal-backdrop" @mousedown.self="modalOpen=false">
       <section class="modal" role="dialog" aria-modal="true">
-        <header><div><p>{{ t('newInbound') }}</p><h2>{{ t('addInbound') }}</h2></div><button class="close" @click="modalOpen=false"><IconX/></button></header>
-        <form @submit.prevent="createInbound">
+        <header><div><p>{{ editingInboundId ? t('editInbound') : t('newInbound') }}</p><h2>{{ editingInboundId ? t('saveInbound') : t('addInbound') }}</h2></div><button class="close" @click="modalOpen=false"><IconX /></button></header>
+        <form @submit.prevent="saveInbound">
           <div class="form-grid">
             <label class="wide"><span>{{ t('remark') }}</span><input v-model.trim="form.remark" placeholder="VPS VLESS TCP" required autofocus /></label>
             <label><span>{{ t('enabled') }}</span><button type="button" :class="['switch', { on: form.enabled }]" @click="form.enabled=!form.enabled"><i></i>{{ form.enabled ? t('enabled') : t('disabled') }}</button></label>
@@ -492,14 +677,14 @@ onBeforeUnmount(() => {
               <label class="wide"><span>{{ t('keyFile') }}</span><input v-model="form.tlsKeyFile" placeholder="/etc/xpanel/certs/privkey.pem" required /></label>
             </template>
           </div>
-          <footer><button type="button" class="cancel" @click="modalOpen=false">{{ t('cancel') }}</button><button class="primary submit" :disabled="loading">{{ loading ? t('saving') : t('createInbound') }}</button></footer>
+          <footer><button type="button" class="cancel" @click="modalOpen=false">{{ t('cancel') }}</button><button class="primary submit" :disabled="loading">{{ loading ? t('saving') : (editingInboundId ? t('saveInbound') : t('createInbound')) }}</button></footer>
         </form>
       </section>
     </div>
 
     <div v-if="subscriptionModalOpen" class="modal-backdrop" @mousedown.self="subscriptionModalOpen=false">
       <section class="modal subscription-modal" role="dialog" aria-modal="true">
-        <header><div><p>{{ t('subscription') }}</p><h2>{{ subscriptionForm.id ? t('editSubscription') : t('addSubscription') }}</h2></div><button class="close" @click="subscriptionModalOpen=false"><IconX/></button></header>
+        <header><div><p>{{ t('subscription') }}</p><h2>{{ subscriptionForm.id ? t('editSubscription') : t('addSubscription') }}</h2></div><button class="close" @click="subscriptionModalOpen=false"><IconX /></button></header>
         <form @submit.prevent="saveSubscription">
           <div class="form-grid">
             <label class="wide"><span>{{ t('subscriptionName') }}</span><input v-model.trim="subscriptionForm.name" :placeholder="t('subscriptionNamePlaceholder')" required autofocus /></label>
@@ -517,17 +702,9 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
-    <div v-if="previewOpen" class="modal-backdrop" @mousedown.self="previewOpen=false">
-      <section class="modal preview-modal" role="dialog" aria-modal="true">
-        <header><div><p>{{ t('xrayConfig') }}</p><h2>{{ t('generatedConfig') }}</h2></div><button class="close" @click="previewOpen=false"><IconX/></button></header>
-        <div class="hash">SHA-256 <code>{{ previewHash }}</code></div>
-        <pre>{{ preview }}</pre>
-      </section>
-    </div>
-
     <div v-if="shareOpen" class="modal-backdrop" @mousedown.self="shareOpen=false">
       <section class="modal share-modal" role="dialog" aria-modal="true">
-        <header><div><p>{{ t('clientImportLink') }}</p><h2>{{ t('exportName', { name: shareRemark }) }}</h2></div><button class="close" @click="shareOpen=false"><IconX/></button></header>
+        <header><div><p>{{ t('clientImportLink') }}</p><h2>{{ t('exportName', { name: shareRemark }) }}</h2></div><button class="close" @click="shareOpen=false"><IconX /></button></header>
         <div class="share-body">
           <p>{{ t('pasteLink') }}</p>
           <div class="share-info">
@@ -538,7 +715,7 @@ onBeforeUnmount(() => {
           </div>
           <textarea readonly :value="shareLink" @focus="selectShareText"></textarea>
           <div class="share-actions">
-            <button class="ghost" @click="() => copyShareLink()"><IconCopy/>{{ t('copyLink') }}</button>
+            <button class="ghost" @click="() => copyShareLink()"><IconCopy />{{ t('copyLink') }}</button>
             <button class="primary" @click="shareOpen=false">{{ t('done') }}</button>
           </div>
         </div>

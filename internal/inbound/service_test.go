@@ -17,6 +17,19 @@ func (r *testRepository) Create(_ context.Context, item Inbound) (Inbound, error
 	r.items = append(r.items, item)
 	return item, nil
 }
+func (r *testRepository) Update(_ context.Context, id int64, item Inbound) (Inbound, error) {
+	for index := range r.items {
+		if r.items[index].ID == id {
+			item.ID = id
+			item.Tag = r.items[index].Tag
+			item.CreatedAt = r.items[index].CreatedAt
+			item.UsedBytes = r.items[index].UsedBytes
+			r.items[index] = item
+			return item, nil
+		}
+	}
+	return Inbound{}, ErrInvalidInput
+}
 func (r *testRepository) AddUsedBytes(_ context.Context, id, delta int64) error {
 	for index := range r.items {
 		if r.items[index].ID == id {

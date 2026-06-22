@@ -145,6 +145,7 @@ install_services() {
   install -m 0755 "${INSTALL_DIR}/packaging/x-panel" /usr/local/bin/x-panel
   install -d -m 0755 /usr/local/libexec
   install -m 0755 "${INSTALL_DIR}/packaging/xpanel-allow-port" /usr/local/libexec/xpanel-allow-port
+  install -m 0755 "${INSTALL_DIR}/packaging/xpanel-control" /usr/local/libexec/xpanel-control
   install -m 0644 "${INSTALL_DIR}/packaging/xpanel.service" /etc/systemd/system/xpanel.service
   install -m 0644 "${INSTALL_DIR}/packaging/xpanel-xray.service" /etc/systemd/system/xpanel-xray.service
   install -m 0440 "${INSTALL_DIR}/packaging/xpanel-sudoers" /etc/sudoers.d/xpanel
@@ -157,6 +158,7 @@ XPANEL_XRAY_BINARY=${XRAY_DIR}/xray
 XPANEL_XRAY_CONFIG=${DATA_DIR}/xray/config.json
 XPANEL_RELOAD_COMMAND="/usr/bin/sudo /usr/bin/systemctl restart xpanel-xray.service"
 XPANEL_FIREWALL_COMMAND="/usr/bin/sudo /usr/local/libexec/xpanel-allow-port"
+XPANEL_CONTROL_COMMAND="/usr/bin/sudo /usr/local/libexec/xpanel-control"
 EOF
 
   chown -R xpanel:xpanel "${DATA_DIR}"

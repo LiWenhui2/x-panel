@@ -25,6 +25,26 @@ export type Inbound = {
 export type CreateInbound = Omit<Inbound, 'id' | 'tag' | 'createdAt' | 'usedBytes' | 'remainingBytes'>
 export type Credentials = { username: string; password: string }
 export type AuthStatus = { needsSetup: boolean; authenticated: boolean; username: string }
+export type Gauge = { used: number; total: number }
+export type SystemStatus = {
+  cpuPercent: number
+  memory: Gauge
+  swap: Gauge
+  disk: Gauge
+  load1: number
+  load5: number
+  load15: number
+  uptime: number
+  uploadBps: number
+  downloadBps: number
+  os: string
+  arch: string
+  collectedAt: string
+}
+export type Settings = { listen: string; port: number }
+export type PanelPortResult = { port: number; restartRequired: boolean }
+export type AccountResult = { updated: boolean; restartRequired: boolean }
+export type RestartResult = { restarting: boolean }
 export type Subscription = {
   id: number
   name: string
@@ -59,10 +79,19 @@ export const api = {
   list: () => request<{ items: Inbound[] }>('/api/v1/inbounds'),
   create: (input: CreateInbound) =>
     request<Inbound>('/api/v1/inbounds', { method: 'POST', body: JSON.stringify(input) }),
+  update: (id: number, input: CreateInbound) =>
+    request<Inbound>(`/api/v1/inbounds/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
   preview: () =>
     request<{ sha256: string; config: Record<string, unknown> }>('/api/v1/config/preview', { method: 'POST' }),
   apply: () =>
     request<{ configPath: string; sha256: string; output?: string }>('/api/v1/config/apply', { method: 'POST' }),
+  systemStatus: () => request<SystemStatus>('/api/v1/system/status'),
+  settings: () => request<Settings>('/api/v1/settings'),
+  updatePanelPort: (port: number) =>
+    request<PanelPortResult>('/api/v1/settings/panel-port', { method: 'POST', body: JSON.stringify({ port }) }),
+  updateAccount: (input: Credentials) =>
+    request<AccountResult>('/api/v1/settings/account', { method: 'POST', body: JSON.stringify(input) }),
+  restartPanel: () => request<RestartResult>('/api/v1/settings/restart', { method: 'POST' }),
   subscriptions: () => request<{ items: Subscription[] }>('/api/v1/subscriptions'),
   createSubscription: (input: SubscriptionInput) =>
     request<SubscriptionWithURL>('/api/v1/subscriptions', { method: 'POST', body: JSON.stringify(input) }),

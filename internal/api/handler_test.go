@@ -33,6 +33,13 @@ func (m *memoryService) Create(_ context.Context, input inbound.CreateInput) (in
 	m.items = append(m.items, item)
 	return item, nil
 }
+func (m *memoryService) Update(_ context.Context, id int64, input inbound.CreateInput) (inbound.Inbound, error) {
+	if err := inbound.Validate(input); err != nil {
+		return inbound.Inbound{}, err
+	}
+	item := inbound.Inbound{ID: id, Tag: "inbound-1", Remark: input.Remark, Listen: input.Listen, Port: input.Port, Protocol: input.Protocol, Network: input.Network, Security: input.Security, ClientID: input.ClientID, Email: input.Email, Enabled: input.Enabled, CreatedAt: time.Now()}
+	return item, nil
+}
 
 func (m *memoryApplier) Apply(_ context.Context, content []byte, sha256 string) (runtime.ApplyResult, error) {
 	m.called = true
@@ -87,6 +94,27 @@ func TestDemoFlow(t *testing.T) {
 	}
 	if !applier.called {
 		t.Fatal("expected inbound creation to apply Xray configuration automatically")
+	}
+	applier.called = false
+	updatePayload := []byte(`{"remark":"Demo edited","listen":"0.0.0.0","port":10444,"protocol":"vless","network":"ws","security":"none","clientId":"11111111-1111-4111-8111-111111111111","email":"demo@example.com","enabled":true,"wsPath":"/edited"}`)
+	request, err = http.NewRequest(http.MethodPut, server.URL+"/api/v1/inbounds/1", bytes.NewReader(updatePayload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	for _, cookie := range cookies {
+		request.AddCookie(cookie)
+	}
+	response, err = client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected update status: %d", response.StatusCode)
+	}
+	if !applier.called {
+		t.Fatal("expected inbound update to apply Xray configuration automatically")
 	}
 	applier.called = false
 	request, err = http.NewRequest(http.MethodPost, server.URL+"/api/v1/config/preview", nil)

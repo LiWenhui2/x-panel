@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ENV_FILE=/etc/xpanel/xpanel.env
+DATA_DIR=${XPANEL_DATA_DIR:-/var/lib/xpanel}
+
+write_env() {
+  local port=$1
+  install -d -m 0755 /etc/xpanel
+  cat >"${ENV_FILE}" <<EOF
+XPANEL_DATA_DIR=${DATA_DIR}
+XPANEL_LISTEN=0.0.0.0:${port}
+XPANEL_XRAY_BINARY=/opt/xpanel/bin/xray
+XPANEL_XRAY_CONFIG=${DATA_DIR}/xray/config.json
+XPANEL_RELOAD_COMMAND="/usr/bin/sudo /usr/bin/systemctl restart xpanel-xray.service"
+XPANEL_FIREWALL_COMMAND="/usr/bin/sudo /usr/local/libexec/xpanel-allow-port"
+XPANEL_CONTROL_COMMAND="/usr/bin/sudo /usr/local/libexec/xpanel-control"
+EOF
+}
+
+set_port() {
+  local port=${1:-}
+  if ! [[ "${port}" =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); then
+    echo "Invalid panel port: ${port}" >&2
+    exit 2
+  fi
+  write_env "${port}"
+  systemctl daemon-reload
+  if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then
+    ufw allow "${port}/tcp" comment 'XPanel web panel' >/dev/null
+  fi
+}
+
+restart_panel() {
+  systemd-run --quiet --on-active=1 --unit=xpanel-delayed-restart /usr/bin/systemctl restart xpanel.service
+}
+
+case "${1:-}" in
+  set-port) shift; set_port "$@" ;;
+  restart-panel) restart_panel ;;
+  *) echo "Usage: xpanel-control {set-port <port>|restart-panel}" >&2; exit 2 ;;
+esac

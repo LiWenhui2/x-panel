@@ -42,6 +42,7 @@ XPANEL_XRAY_BINARY=/opt/xpanel/bin/xray
 XPANEL_XRAY_CONFIG=${DATA_DIR}/xray/config.json
 XPANEL_RELOAD_COMMAND="/usr/bin/sudo /usr/bin/systemctl restart xpanel-xray.service"
 XPANEL_FIREWALL_COMMAND="/usr/bin/sudo /usr/local/libexec/xpanel-allow-port"
+XPANEL_CONTROL_COMMAND="/usr/bin/sudo /usr/local/libexec/xpanel-control"
 EOF
 }
 

@@ -8,7 +8,10 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -19,12 +22,14 @@ import (
 	"xpanel/internal/inbound"
 	"xpanel/internal/runtime"
 	"xpanel/internal/subscription"
+	"xpanel/internal/system"
 	webui "xpanel/web"
 )
 
 type inboundService interface {
 	List(context.Context) ([]inbound.Inbound, error)
 	Create(context.Context, inbound.CreateInput) (inbound.Inbound, error)
+	Update(context.Context, int64, inbound.CreateInput) (inbound.Inbound, error)
 }
 
 type configApplier interface {
@@ -72,8 +77,14 @@ func (h *Handler) Routes() http.Handler {
 		protected.Use(h.requireAuth)
 		protected.Get("/api/v1/inbounds", h.listInbounds)
 		protected.Post("/api/v1/inbounds", h.createInbound)
+		protected.Put("/api/v1/inbounds/{id}", h.updateInbound)
 		protected.Post("/api/v1/config/preview", h.previewConfig)
 		protected.Post("/api/v1/config/apply", h.applyConfig)
+		protected.Get("/api/v1/system/status", h.systemStatus)
+		protected.Get("/api/v1/settings", h.settings)
+		protected.Post("/api/v1/settings/panel-port", h.updatePanelPort)
+		protected.Post("/api/v1/settings/account", h.updateAccount)
+		protected.Post("/api/v1/settings/restart", h.restartPanel)
 		if h.subscriptions != nil {
 			protected.Get("/api/v1/subscriptions", h.listSubscriptions)
 			protected.Post("/api/v1/subscriptions", h.createSubscription)
@@ -84,6 +95,35 @@ func (h *Handler) Routes() http.Handler {
 	})
 	r.Handle("/*", webui.Handler())
 	return r
+}
+
+func (h *Handler) updateInbound(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var input inbound.CreateInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := h.service.Update(r.Context(), id, input)
+	if err != nil {
+		if errors.Is(err, inbound.ErrInvalidInput) {
+			writeError(w, http.StatusUnprocessableEntity, "validation_failed", err.Error())
+			return
+		}
+		if errors.Is(err, inbound.ErrConflict) {
+			writeError(w, http.StatusConflict, "inbound_conflict", err.Error())
+			return
+		}
+		h.internalError(w, r, err)
+		return
+	}
+	if _, err := h.applyCurrentConfig(r.Context()); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "auto_apply_failed", "inbound updated, but Xray apply failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
 }
 
 func (h *Handler) listSubscriptions(w http.ResponseWriter, r *http.Request) {
@@ -280,6 +320,80 @@ func (h *Handler) listInbounds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (h *Handler) systemStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, system.Collect(r.Context()))
+}
+
+func (h *Handler) settings(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"listen": os.Getenv("XPANEL_LISTEN"), "port": currentPanelPort()})
+}
+
+type panelPortInput struct {
+	Port int `json:"port"`
+}
+
+func (h *Handler) updatePanelPort(w http.ResponseWriter, r *http.Request) {
+	var input panelPortInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if input.Port < 1 || input.Port > 65535 {
+		writeError(w, http.StatusUnprocessableEntity, "invalid_port", "port must be between 1 and 65535")
+		return
+	}
+	if err := runControlCommand(r.Context(), "set-port", strconv.Itoa(input.Port)); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "panel_port_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"port": input.Port, "restartRequired": true})
+}
+
+func (h *Handler) updateAccount(w http.ResponseWriter, r *http.Request) {
+	var input credentials
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if err := h.auth.Setup(r.Context(), input.Username, input.Password); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "account_update_failed", err.Error())
+		return
+	}
+	token, expiresAt, err := h.auth.Login(r.Context(), input.Username, input.Password)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "account_update_failed", err.Error())
+		return
+	}
+	http.SetCookie(w, sessionCookie(token, expiresAt))
+	writeJSON(w, http.StatusOK, map[string]any{"updated": true, "restartRequired": true})
+}
+
+func (h *Handler) restartPanel(w http.ResponseWriter, r *http.Request) {
+	if err := runControlCommand(r.Context(), "restart-panel"); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "restart_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"restarting": true})
+}
+
+func currentPanelPort() int {
+	listen := os.Getenv("XPANEL_LISTEN")
+	parts := strings.Split(listen, ":")
+	port, _ := strconv.Atoi(parts[len(parts)-1])
+	return port
+}
+
+func runControlCommand(ctx context.Context, args ...string) error {
+	command := strings.Fields(os.Getenv("XPANEL_CONTROL_COMMAND"))
+	if len(command) == 0 {
+		return errors.New("panel control command is not configured")
+	}
+	allArgs := append(append([]string(nil), command[1:]...), args...)
+	output, err := exec.CommandContext(ctx, command[0], allArgs...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("control command failed: %w: %s", err, string(output))
+	}
+	return nil
 }
 
 func (h *Handler) createInbound(w http.ResponseWriter, r *http.Request) {
