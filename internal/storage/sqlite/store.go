@@ -254,6 +254,30 @@ func (s *Store) Create(ctx context.Context, item inbound.Inbound) (inbound.Inbou
 	return item, nil
 }
 
+func (s *Store) Update(ctx context.Context, id int64, item inbound.Inbound) (inbound.Inbound, error) {
+	var usedBytes int64
+	var createdAt string
+	if err := s.db.QueryRowContext(ctx, `SELECT used_bytes, created_at FROM inbounds WHERE id = ?`, id).Scan(&usedBytes, &createdAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return inbound.Inbound{}, inbound.ErrConflict
+		}
+		return inbound.Inbound{}, err
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE inbounds SET remark = ?, listen = ?, port = ?, protocol = ?, network = ?, security = ?, client_id = ?, email = ?, enabled = ?, total_bytes = ?, expiry_time = ?, alter_id = ?, sniffing = ?, ws_path = ?, tls_cert_file = ?, tls_key_file = ? WHERE id = ?`,
+		item.Remark, item.Listen, item.Port, item.Protocol, item.Network, item.Security, item.ClientID, item.Email, item.Enabled, item.TotalBytes, item.ExpiryTime, item.AlterID, item.Sniffing, item.WSPath, item.TLSCertFile, item.TLSKeyFile, id)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			return inbound.Inbound{}, fmt.Errorf("%w: port or client ID already exists", inbound.ErrConflict)
+		}
+		return inbound.Inbound{}, err
+	}
+	item.ID = id
+	item.Tag = fmt.Sprintf("inbound-%d", id)
+	item.UsedBytes = usedBytes
+	item.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
+	return item, nil
+}
+
 func (s *Store) AddUsedBytes(ctx context.Context, id, delta int64) error {
 	if delta <= 0 {
 		return nil

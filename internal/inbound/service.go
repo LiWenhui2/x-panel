@@ -91,6 +91,37 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (Inbound, error
 	return created, nil
 }
 
+func (s *Service) Update(ctx context.Context, id int64, input CreateInput) (Inbound, error) {
+	if id <= 0 {
+		return Inbound{}, fmt.Errorf("%w: invalid inbound ID", ErrInvalidInput)
+	}
+	if err := Validate(input); err != nil {
+		return Inbound{}, err
+	}
+	if input.ExpiryTime == "" {
+		input.ExpiryTime = DefaultExpiryTime
+	}
+	if s.dependencies.PortOpener != nil {
+		if err := s.dependencies.PortOpener.Allow(ctx, input.Port); err != nil {
+			return Inbound{}, fmt.Errorf("open firewall port %d: %w", input.Port, err)
+		}
+	}
+	item := Inbound{
+		Remark: strings.TrimSpace(input.Remark), Listen: input.Listen, Port: input.Port,
+		Protocol: input.Protocol, Network: input.Network, Security: input.Security,
+		ClientID: strings.ToLower(input.ClientID), Email: input.Email, Enabled: input.Enabled,
+		TotalBytes: input.TotalBytes, ExpiryTime: input.ExpiryTime, AlterID: input.AlterID,
+		Sniffing: input.Sniffing, WSPath: input.WSPath,
+		TLSCertFile: input.TLSCertFile, TLSKeyFile: input.TLSKeyFile,
+	}
+	updated, err := s.repository.Update(ctx, id, item)
+	if err != nil {
+		return Inbound{}, err
+	}
+	normalizeUsage(&updated)
+	return updated, nil
+}
+
 func normalizeUsage(item *Inbound) {
 	if item.ExpiryTime == "" {
 		item.ExpiryTime = DefaultExpiryTime
