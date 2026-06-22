@@ -159,6 +159,13 @@ func (h *Handler) createInbound(w http.ResponseWriter, r *http.Request) {
 		h.internalError(w, r, err)
 		return
 	}
+	if _, err := h.applyCurrentConfig(r.Context()); err != nil {
+		h.logger.Error("automatic Xray apply failed after inbound creation",
+			"requestId", middleware.GetReqID(r.Context()), "inboundId", item.ID, "port", item.Port, "error", err)
+		writeError(w, http.StatusUnprocessableEntity, "auto_apply_failed",
+			"inbound saved and firewall port opened, but Xray apply failed: "+err.Error())
+		return
+	}
 	writeJSON(w, http.StatusCreated, item)
 }
 
@@ -236,26 +243,31 @@ func (h *Handler) previewConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) applyConfig(w http.ResponseWriter, r *http.Request) {
-	if h.applier == nil {
-		writeError(w, http.StatusServiceUnavailable, "apply_not_configured", "xray apply command is not configured")
-		return
-	}
-	items, err := h.service.List(r.Context())
-	if err != nil {
-		h.internalError(w, r, err)
-		return
-	}
-	result, err := h.compiler.Compile(items)
-	if err != nil {
-		writeError(w, http.StatusUnprocessableEntity, "compile_failed", err.Error())
-		return
-	}
-	applied, err := h.applier.Apply(r.Context(), result.Content, result.SHA256)
+	applied, err := h.applyCurrentConfig(r.Context())
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, "apply_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, applied)
+}
+
+func (h *Handler) applyCurrentConfig(ctx context.Context) (runtime.ApplyResult, error) {
+	if h.applier == nil {
+		return runtime.ApplyResult{}, errors.New("xray apply command is not configured")
+	}
+	items, err := h.service.List(ctx)
+	if err != nil {
+		return runtime.ApplyResult{}, err
+	}
+	result, err := h.compiler.Compile(items)
+	if err != nil {
+		return runtime.ApplyResult{}, err
+	}
+	applied, err := h.applier.Apply(ctx, result.Content, result.SHA256)
+	if err != nil {
+		return runtime.ApplyResult{}, err
+	}
+	return applied, nil
 }
 
 func (h *Handler) internalError(w http.ResponseWriter, r *http.Request, err error) {

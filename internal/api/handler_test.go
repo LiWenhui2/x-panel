@@ -82,6 +82,10 @@ func TestDemoFlow(t *testing.T) {
 	if response.StatusCode != http.StatusCreated {
 		t.Fatalf("unexpected create status: %d", response.StatusCode)
 	}
+	if !applier.called {
+		t.Fatal("expected inbound creation to apply Xray configuration automatically")
+	}
+	applier.called = false
 	request, err = http.NewRequest(http.MethodPost, server.URL+"/api/v1/config/preview", nil)
 	if err != nil {
 		t.Fatal(err)
