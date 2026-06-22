@@ -14,6 +14,7 @@ Environment=XPANEL_LISTEN=0.0.0.0:8080
 Environment=XPANEL_XRAY_BINARY=/opt/xpanel/bin/xray
 Environment=XPANEL_XRAY_CONFIG=/var/lib/xpanel/xray/config.json
 Environment="XPANEL_RELOAD_COMMAND=/usr/bin/sudo /usr/bin/systemctl restart xpanel-xray.service"
+Environment="XPANEL_FIREWALL_COMMAND=/usr/bin/sudo /usr/local/libexec/xpanel-allow-port"
 EnvironmentFile=-/etc/xpanel/xpanel.env
 Restart=on-failure
 RestartSec=5s

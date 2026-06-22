@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+port=${1:-}
+if (( $# != 1 )) || ! [[ "${port}" =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); then
+  echo "Invalid TCP port: ${port}" >&2
+  exit 2
+fi
+
+/usr/bin/systemd-run --quiet --wait --collect /usr/sbin/ufw allow "${port}/tcp" comment 'XPanel inbound'

@@ -11,6 +11,8 @@ export type Inbound = {
   email: string
   enabled: boolean
   totalBytes: number
+  usedBytes: number
+  remainingBytes: number
   expiryTime: string
   alterId: number
   sniffing: boolean
@@ -20,7 +22,7 @@ export type Inbound = {
   createdAt: string
 }
 
-export type CreateInbound = Omit<Inbound, 'id' | 'tag' | 'createdAt'>
+export type CreateInbound = Omit<Inbound, 'id' | 'tag' | 'createdAt' | 'usedBytes' | 'remainingBytes'>
 export type Credentials = { username: string; password: string }
 export type AuthStatus = { needsSetup: boolean; authenticated: boolean; username: string }
 

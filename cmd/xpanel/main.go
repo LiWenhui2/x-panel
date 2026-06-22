@@ -41,7 +41,17 @@ func main() {
 		}
 	}
 
-	service := inbound.NewService(store)
+	xrayBinary := os.Getenv("XPANEL_XRAY_BINARY")
+	dependencies := inbound.Dependencies{}
+	if command := os.Getenv("XPANEL_FIREWALL_COMMAND"); command != "" {
+		dependencies.PortOpener = runtime.CommandPortOpener{Command: strings.Fields(command), Timeout: 10 * time.Second}
+	}
+	if xrayBinary != "" {
+		dependencies.TrafficReader = runtime.CommandTrafficReader{
+			Binary: xrayBinary, Server: env("XPANEL_XRAY_API", "127.0.0.1:10085"), Timeout: 5 * time.Second,
+		}
+	}
+	service := inbound.NewService(store, dependencies)
 	authService := auth.NewService(store)
 	if os.Getenv("XPANEL_SEED_DEMO") == "true" {
 		if err := seedDemo(context.Background(), service); err != nil {
@@ -51,8 +61,8 @@ func main() {
 	}
 
 	validator := runtime.Validator(runtime.JSONValidator{})
-	if binary := os.Getenv("XPANEL_XRAY_BINARY"); binary != "" {
-		validator = runtime.CommandValidator{Binary: binary, Timeout: 10 * time.Second}
+	if xrayBinary != "" {
+		validator = runtime.CommandValidator{Binary: xrayBinary, Timeout: 10 * time.Second}
 	}
 
 	xrayConfigPath := env("XPANEL_XRAY_CONFIG", filepath.Join(dataDir, "xray", "config.json"))

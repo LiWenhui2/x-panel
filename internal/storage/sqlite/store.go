@@ -174,6 +174,7 @@ func (s *Store) ensureInboundColumns() error {
 	}
 	columns := map[string]string{
 		"total_bytes":   "INTEGER NOT NULL DEFAULT 0",
+		"used_bytes":    "INTEGER NOT NULL DEFAULT 0",
 		"expiry_time":   "TEXT NOT NULL DEFAULT ''",
 		"alter_id":      "INTEGER NOT NULL DEFAULT 0",
 		"sniffing":      "INTEGER NOT NULL DEFAULT 1",
@@ -189,11 +190,14 @@ func (s *Store) ensureInboundColumns() error {
 			return fmt.Errorf("add inbound column %s: %w", name, err)
 		}
 	}
+	if _, err := s.db.Exec(`UPDATE inbounds SET expiry_time = ? WHERE expiry_time = ''`, inbound.DefaultExpiryTime); err != nil {
+		return fmt.Errorf("backfill inbound expiry time: %w", err)
+	}
 	return nil
 }
 
 func (s *Store) List(ctx context.Context) ([]inbound.Inbound, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, remark, tag, listen, port, protocol, network, security, client_id, email, enabled, total_bytes, expiry_time, alter_id, sniffing, ws_path, tls_cert_file, tls_key_file, created_at FROM inbounds ORDER BY id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, remark, tag, listen, port, protocol, network, security, client_id, email, enabled, total_bytes, used_bytes, expiry_time, alter_id, sniffing, ws_path, tls_cert_file, tls_key_file, created_at FROM inbounds ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +206,7 @@ func (s *Store) List(ctx context.Context) ([]inbound.Inbound, error) {
 	for rows.Next() {
 		var item inbound.Inbound
 		var createdAt string
-		if err := rows.Scan(&item.ID, &item.Remark, &item.Tag, &item.Listen, &item.Port, &item.Protocol, &item.Network, &item.Security, &item.ClientID, &item.Email, &item.Enabled, &item.TotalBytes, &item.ExpiryTime, &item.AlterID, &item.Sniffing, &item.WSPath, &item.TLSCertFile, &item.TLSKeyFile, &createdAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Remark, &item.Tag, &item.Listen, &item.Port, &item.Protocol, &item.Network, &item.Security, &item.ClientID, &item.Email, &item.Enabled, &item.TotalBytes, &item.UsedBytes, &item.ExpiryTime, &item.AlterID, &item.Sniffing, &item.WSPath, &item.TLSCertFile, &item.TLSKeyFile, &createdAt); err != nil {
 			return nil, err
 		}
 		item.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
@@ -213,8 +217,8 @@ func (s *Store) List(ctx context.Context) ([]inbound.Inbound, error) {
 
 func (s *Store) Create(ctx context.Context, item inbound.Inbound) (inbound.Inbound, error) {
 	item.CreatedAt = time.Now().UTC()
-	result, err := s.db.ExecContext(ctx, `INSERT INTO inbounds (remark, tag, listen, port, protocol, network, security, client_id, email, enabled, total_bytes, expiry_time, alter_id, sniffing, ws_path, tls_cert_file, tls_key_file, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		item.Remark, "pending-"+item.ClientID, item.Listen, item.Port, item.Protocol, item.Network, item.Security, item.ClientID, item.Email, item.Enabled, item.TotalBytes, item.ExpiryTime, item.AlterID, item.Sniffing, item.WSPath, item.TLSCertFile, item.TLSKeyFile, item.CreatedAt.Format(time.RFC3339Nano))
+	result, err := s.db.ExecContext(ctx, `INSERT INTO inbounds (remark, tag, listen, port, protocol, network, security, client_id, email, enabled, total_bytes, used_bytes, expiry_time, alter_id, sniffing, ws_path, tls_cert_file, tls_key_file, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		item.Remark, "pending-"+item.ClientID, item.Listen, item.Port, item.Protocol, item.Network, item.Security, item.ClientID, item.Email, item.Enabled, item.TotalBytes, item.UsedBytes, item.ExpiryTime, item.AlterID, item.Sniffing, item.WSPath, item.TLSCertFile, item.TLSKeyFile, item.CreatedAt.Format(time.RFC3339Nano))
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return inbound.Inbound{}, fmt.Errorf("%w: port or client ID already exists", inbound.ErrConflict)
@@ -230,4 +234,12 @@ func (s *Store) Create(ctx context.Context, item inbound.Inbound) (inbound.Inbou
 		return inbound.Inbound{}, err
 	}
 	return item, nil
+}
+
+func (s *Store) AddUsedBytes(ctx context.Context, id, delta int64) error {
+	if delta <= 0 {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE inbounds SET used_bytes = used_bytes + ? WHERE id = ?`, delta, id)
+	return err
 }

@@ -41,7 +41,27 @@
 
 .auth-language button { color: #94a3b8; }
 
+.share-info {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 14px;
+}
+
+.share-info div {
+  padding: 11px 12px;
+  border: 1px solid #e5eaf2;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.share-info span,
+.share-info strong { display: block; }
+.share-info span { color: #7a8798; font-size: 11px; }
+.share-info strong { margin-top: 4px; color: #172033; font-size: 13px; }
+
 @media (max-width: 640px) {
   .header-actions .health { display: none; }
   .auth-language { top: 14px; right: 14px; }
+  .share-info { grid-template-columns: 1fr; }
 }

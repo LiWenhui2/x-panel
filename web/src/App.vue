@@ -7,6 +7,7 @@ import {
 } from '@tabler/icons-vue'
 import { api, type CreateInbound, type Inbound } from './api'
 import { messages, type Language, type MessageKey } from './i18n'
+import { buildShareLink } from './share'
 
 type FormState = CreateInbound & { totalGB: number; expiryLocal: string }
 
@@ -24,6 +25,10 @@ const preview = ref('')
 const previewHash = ref('')
 const shareLink = ref('')
 const shareRemark = ref('')
+const shareExpiry = ref('')
+const shareTotal = ref(0)
+const shareUsed = ref(0)
+const shareRemaining = ref(0)
 const authForm = reactive({ username: 'admin', password: '' })
 const language = ref<Language>((localStorage.getItem('xpanel-language') as Language) === 'zh' ? 'zh' : 'en')
 const gib = 1024 ** 3
@@ -51,7 +56,7 @@ function newForm(): FormState {
     network: 'tcp', security: 'none', clientId: makeUUID(),
     email: `client-${Date.now()}@xpanel.local`, enabled: true, totalBytes: 0,
     expiryTime: '', alterId: 0, sniffing: true, wsPath: '/xpanel',
-    tlsCertFile: '', tlsKeyFile: '', totalGB: 0, expiryLocal: '',
+    tlsCertFile: '', tlsKeyFile: '', totalGB: 0, expiryLocal: '2099-12-31T23:59',
   }
 }
 
@@ -177,7 +182,11 @@ async function applyConfig() {
 
 function exportInbound(item: Inbound) {
   shareRemark.value = item.remark || item.tag
-  shareLink.value = buildShareLink(item)
+  shareExpiry.value = item.expiryTime
+  shareTotal.value = item.totalBytes
+  shareUsed.value = item.usedBytes
+  shareRemaining.value = item.remainingBytes
+  shareLink.value = buildShareLink(item, exportAddress(item.listen))
   shareOpen.value = true
   void copyShareLink(false)
 }
@@ -188,40 +197,10 @@ async function copyShareLink(showToast = true) {
   if (showToast) message.value = t('linkCopied')
 }
 
-function buildShareLink(item: Inbound) {
-  const address = exportAddress(item.listen)
-  const name = encodeURIComponent(item.remark || item.tag || `${item.protocol}-${item.port}`)
-  return item.protocol === 'vmess' ? buildVMessLink(item, address) : buildVLESSLink(item, address, name)
-}
-
 function exportAddress(listen: string) {
   const normalized = listen.trim()
   if (normalized && normalized !== '0.0.0.0' && normalized !== '::' && normalized !== '127.0.0.1') return normalized
   return window.location.hostname || '127.0.0.1'
-}
-
-function buildVLESSLink(item: Inbound, address: string, name: string) {
-  const params = new URLSearchParams()
-  params.set('type', item.network)
-  params.set('security', item.security)
-  if (item.wsPath) params.set('path', item.wsPath)
-  return `vless://${item.clientId}@${address}:${item.port}?${params.toString()}#${name}`
-}
-
-function buildVMessLink(item: Inbound, address: string) {
-  const payload = {
-    v: '2', ps: item.remark || item.tag, add: address, port: item.port,
-    id: item.clientId, aid: item.alterId, net: item.network, type: 'none',
-    host: '', path: item.network === 'ws' ? item.wsPath : '', tls: item.security === 'tls' ? 'tls' : 'none',
-  }
-  return `vmess://${base64Encode(JSON.stringify(payload, null, 2))}`
-}
-
-function base64Encode(value: string) {
-  const bytes = new TextEncoder().encode(value)
-  let binary = ''
-  bytes.forEach(byte => { binary += String.fromCharCode(byte) })
-  return btoa(binary)
 }
 
 async function copyText(value: string) {
@@ -247,6 +226,13 @@ function formatBytes(value: number) {
   if (!value) return t('unlimited')
   if (value >= gib) return `${(value / gib).toFixed(1)} GB`
   return `${(value / 1024 ** 2).toFixed(1)} MB`
+}
+function formatBytesExact(value: number) {
+  if (!value) return '0 B'
+  if (value >= gib) return `${(value / gib).toFixed(1)} GB`
+  if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(1)} MB`
+  if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`
+  return `${value} B`
 }
 function formatExpiry(value: string) { return value ? new Date(value).toLocaleString(language.value === 'zh' ? 'zh-CN' : 'en-US') : t('never') }
 function errorText(cause: unknown) { return cause instanceof Error ? cause.message : String(cause) }
@@ -391,6 +377,12 @@ onBeforeUnmount(() => {
         <header><div><p>{{ t('clientImportLink') }}</p><h2>{{ t('exportName', { name: shareRemark }) }}</h2></div><button class="close" @click="shareOpen=false"><IconX/></button></header>
         <div class="share-body">
           <p>{{ t('pasteLink') }}</p>
+          <div class="share-info">
+            <div><span>{{ t('expiry') }}</span><strong>{{ formatExpiry(shareExpiry) }}</strong></div>
+            <div><span>{{ t('totalTraffic') }}</span><strong>{{ formatBytes(shareTotal) }}</strong></div>
+            <div><span>{{ t('usedTraffic') }}</span><strong>{{ formatBytesExact(shareUsed) }}</strong></div>
+            <div><span>{{ t('remainingTraffic') }}</span><strong>{{ shareTotal ? formatBytesExact(shareRemaining) : t('unlimited') }}</strong></div>
+          </div>
           <textarea readonly :value="shareLink" @focus="selectShareText"></textarea>
           <div class="share-actions">
             <button class="ghost" @click="() => copyShareLink()"><IconCopy/>{{ t('copyLink') }}</button>

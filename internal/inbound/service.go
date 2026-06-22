@@ -13,17 +13,67 @@ import (
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`)
 
-type Service struct{ repository Repository }
+type PortOpener interface {
+	Allow(context.Context, int) error
+}
 
-func NewService(repository Repository) *Service { return &Service{repository: repository} }
+type TrafficReader interface {
+	ReadAndReset(context.Context) (map[string]int64, error)
+}
+
+type Dependencies struct {
+	PortOpener    PortOpener
+	TrafficReader TrafficReader
+}
+
+type Service struct {
+	repository   Repository
+	dependencies Dependencies
+}
+
+func NewService(repository Repository, dependencies ...Dependencies) *Service {
+	service := &Service{repository: repository}
+	if len(dependencies) > 0 {
+		service.dependencies = dependencies[0]
+	}
+	return service
+}
 
 func (s *Service) List(ctx context.Context) ([]Inbound, error) {
-	return s.repository.List(ctx)
+	items, err := s.repository.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.dependencies.TrafficReader != nil {
+		if usage, readErr := s.dependencies.TrafficReader.ReadAndReset(ctx); readErr == nil {
+			for index := range items {
+				delta := usage[items[index].Email]
+				if delta > 0 {
+					if err := s.repository.AddUsedBytes(ctx, items[index].ID, delta); err != nil {
+						return nil, err
+					}
+					items[index].UsedBytes += delta
+				}
+			}
+		}
+	}
+	for index := range items {
+		normalizeUsage(&items[index])
+	}
+	return items, nil
 }
 
 func (s *Service) Create(ctx context.Context, input CreateInput) (Inbound, error) {
 	if err := Validate(input); err != nil {
 		return Inbound{}, err
+	}
+	if input.ExpiryTime == "" {
+		input.ExpiryTime = DefaultExpiryTime
+	}
+	if s.dependencies.PortOpener != nil {
+		if err := s.dependencies.PortOpener.Allow(ctx, input.Port); err != nil {
+			return Inbound{}, fmt.Errorf("open firewall port %d: %w", input.Port, err)
+		}
 	}
 	item := Inbound{
 		Remark: strings.TrimSpace(input.Remark), Listen: input.Listen, Port: input.Port,
@@ -33,7 +83,24 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (Inbound, error
 		Sniffing: input.Sniffing, WSPath: input.WSPath,
 		TLSCertFile: input.TLSCertFile, TLSKeyFile: input.TLSKeyFile,
 	}
-	return s.repository.Create(ctx, item)
+	created, err := s.repository.Create(ctx, item)
+	if err != nil {
+		return Inbound{}, err
+	}
+	normalizeUsage(&created)
+	return created, nil
+}
+
+func normalizeUsage(item *Inbound) {
+	if item.ExpiryTime == "" {
+		item.ExpiryTime = DefaultExpiryTime
+	}
+	if item.TotalBytes > 0 {
+		item.RemainingBytes = item.TotalBytes - item.UsedBytes
+		if item.RemainingBytes < 0 {
+			item.RemainingBytes = 0
+		}
+	}
 }
 
 func Validate(input CreateInput) error {
