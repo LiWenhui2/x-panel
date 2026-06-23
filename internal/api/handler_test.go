@@ -231,6 +231,18 @@ func TestPublicSubscriptionDocument(t *testing.T) {
 	if document.TotalBytes != 4096 || document.ExpiryTime != "2099-01-02T03:04:05Z" || document.Nodes[0].TotalBytes != 4096 {
 		t.Fatalf("expected subscription quota metadata, got %#v", document)
 	}
+	response, err = server.Client().Get(server.URL + "/sub/" + token + "?format=nexora")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var nexora subscription.NexoraDocument
+	if err := json.NewDecoder(response.Body).Decode(&nexora); err != nil {
+		t.Fatal(err)
+	}
+	if nexora.Client != "Nexora" || len(nexora.Subscriptions) != 1 || nexora.Subscriptions[0].RemainBytes != 4096 || len(nexora.ProxyNodes) != 1 {
+		t.Fatalf("unexpected Nexora export: %#v", nexora)
+	}
 	response, err = server.Client().Get(server.URL + "/sub/" + token)
 	if err != nil {
 		t.Fatal(err)

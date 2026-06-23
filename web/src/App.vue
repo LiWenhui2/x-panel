@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
-  IconAlertCircle, IconBrandGithub, IconChartDonut, IconCheck, IconCopy, IconCpu, IconDashboard, IconDatabase,
+  IconAlertCircle, IconBrandGithub, IconChartDonut, IconCheck, IconCpu, IconDashboard, IconDatabase,
   IconDownload, IconEdit, IconKey, IconLink, IconLock, IconLogout, IconPlus, IconRefresh,
   IconRocket, IconServer, IconSettings, IconShieldCheck, IconTrash, IconUpload, IconUserCog, IconX,
 } from '@tabler/icons-vue'
@@ -14,7 +14,7 @@ import {
   type SystemStatus,
 } from './api'
 import { messages, type Language, type MessageKey } from './i18n'
-import { buildShareLink } from './share'
+import { buildClientExport, type ExportClientId } from './share'
 
 type View = 'overview' | 'inbounds' | 'subscriptions' | 'settings'
 type FormState = CreateInbound & { totalGB: number; expiryLocal: string }
@@ -42,12 +42,20 @@ const shareExpiry = ref('')
 const shareTotal = ref(0)
 const shareUsed = ref(0)
 const shareRemaining = ref(0)
+const shareNode = ref<Inbound | null>(null)
+const selectedExportClient = ref<ExportClientId>('nexora')
 const subscriptionURLs = reactive<Record<number, string>>({})
 const subscriptionForm = reactive({ id: 0, name: '', enabled: true, inboundIds: [] as number[], totalGB: 0, expiryLocal: '2099-12-31T23:59' })
 const authForm = reactive({ username: '', password: '' })
 const settingsForm = reactive({ port: 0, username: '', password: '' })
 const language = ref<Language>((localStorage.getItem('xpanel-language') as Language) === 'en' ? 'en' : 'zh')
 const gib = 1024 ** 3
+const exportClients: Array<{ id: ExportClientId; name: string }> = [
+  { id: 'nexora', name: 'Nexora' },
+  { id: 'v2rayn', name: 'v2rayN' },
+  { id: 'clash', name: 'Clash' },
+  { id: 'sing-box', name: 'sing-box' },
+]
 const form = reactive<FormState>(newForm())
 let sessionTimer: number | undefined
 let statusTimer: number | undefined
@@ -228,7 +236,7 @@ async function loadSettings() {
 
 function startStatusPolling() {
   stopStatusPolling()
-  statusTimer = window.setInterval(() => void refreshSystem(), 5000)
+  statusTimer = window.setInterval(() => void refreshSystem(), 1000)
 }
 function stopStatusPolling() {
   if (statusTimer !== undefined) window.clearInterval(statusTimer)
@@ -300,14 +308,31 @@ async function rotateSubscription(item: Subscription) {
   finally { loading.value = false }
 }
 
-async function copySubscriptionURL(item: Subscription) {
+async function ensureSubscriptionURL(item: Subscription) {
   const value = subscriptionURLs[item.id]
-  if (!value) {
-    fail(t('rotateToReveal'))
-    return
-  }
-  await copyText(value)
-  notify(t('subscriptionCopied'))
+  if (value) return value
+  const result = await api.rotateSubscription(item.id)
+  subscriptionURLs[item.id] = result.url
+  await refreshSubscriptions()
+  return result.url
+}
+
+async function exportSubscription(item: Subscription, client: ExportClientId) {
+  loading.value = true
+  error.value = ''
+  try {
+    const value = withSubscriptionFormat(await ensureSubscriptionURL(item), client)
+    await copyText(value)
+    notify(t('clientExportCopied', { client: clientName(client) }))
+  } catch (cause) { fail(errorText(cause)) }
+  finally { loading.value = false }
+}
+
+function withSubscriptionFormat(value: string, client: ExportClientId) {
+  const url = new URL(value, window.location.origin)
+  if (client === 'v2rayn') url.searchParams.delete('format')
+  else url.searchParams.set('format', client === 'sing-box' ? 'sing-box' : client)
+  return url.toString()
 }
 
 async function removeSubscription(item: Subscription) {
@@ -393,20 +418,29 @@ async function restartPanel() {
 }
 
 function exportInbound(item: Inbound) {
+  shareNode.value = item
   shareRemark.value = item.remark || item.tag
   shareExpiry.value = item.expiryTime
   shareTotal.value = item.totalBytes
   shareUsed.value = item.usedBytes
   shareRemaining.value = item.remainingBytes
-  shareLink.value = buildShareLink(item, exportAddress(item.listen))
+  selectedExportClient.value = 'nexora'
+  shareLink.value = buildClientExport(item, exportAddress(item.listen), selectedExportClient.value)
   shareOpen.value = true
-  void copyShareLink(false)
+  void copyClientExport(selectedExportClient.value, false)
 }
 
-async function copyShareLink(showToast = true) {
+async function copyClientExport(client: ExportClientId, showToast = true) {
+  if (!shareNode.value) return
+  selectedExportClient.value = client
+  shareLink.value = buildClientExport(shareNode.value, exportAddress(shareNode.value.listen), client)
   if (!shareLink.value) return
   await copyText(shareLink.value)
-  if (showToast) notify(t('linkCopied'))
+  if (showToast) notify(t('clientExportCopied', { client: clientName(client) }))
+}
+
+function clientName(client: ExportClientId) {
+  return exportClients.find(item => item.id === client)?.name || client
 }
 
 function exportAddress(listen: string) {
@@ -638,8 +672,23 @@ onBeforeUnmount(() => {
               </div>
               <p v-if="subscriptionURLs[item.id]" class="fresh-url">{{ subscriptionURLs[item.id] }}</p>
               <p v-else class="url-hint">{{ t('tokenHidden') }}</p>
+              <div class="client-export-row" :aria-label="t('exportClients')">
+                <button
+                  v-for="client in exportClients"
+                  :key="client.id"
+                  class="client-export-button"
+                  :class="{ nexora: client.id === 'nexora' }"
+                  :disabled="loading"
+                  @click="exportSubscription(item, client.id)"
+                >
+                  <img v-if="client.id === 'nexora'" src="/nexora.png" alt="" />
+                  <IconServer v-else-if="client.id === 'v2rayn'" />
+                  <IconShieldCheck v-else-if="client.id === 'clash'" />
+                  <IconDatabase v-else />
+                  <span>{{ client.name }}</span>
+                </button>
+              </div>
               <footer>
-                <button class="ghost" @click="copySubscriptionURL(item)"><IconCopy />{{ t('copyLink') }}</button>
                 <button class="ghost" @click="rotateSubscription(item)"><IconRefresh />{{ t('rotate') }}</button>
                 <button class="ghost" @click="openSubscription(item)"><IconEdit />{{ t('edit') }}</button>
                 <button class="danger-button" @click="removeSubscription(item)"><IconTrash /></button>
@@ -732,6 +781,21 @@ onBeforeUnmount(() => {
         <header><div><p>{{ t('clientImportLink') }}</p><h2>{{ t('exportName', { name: shareRemark }) }}</h2></div><button class="close" @click="shareOpen=false"><IconX /></button></header>
         <div class="share-body">
           <p>{{ t('pasteLink') }}</p>
+          <div class="client-export-row modal-client-row" :aria-label="t('exportClients')">
+            <button
+              v-for="client in exportClients"
+              :key="client.id"
+              class="client-export-button"
+              :class="{ active: selectedExportClient === client.id, nexora: client.id === 'nexora' }"
+              @click="copyClientExport(client.id)"
+            >
+              <img v-if="client.id === 'nexora'" src="/nexora.png" alt="" />
+              <IconServer v-else-if="client.id === 'v2rayn'" />
+              <IconShieldCheck v-else-if="client.id === 'clash'" />
+              <IconDatabase v-else />
+              <span>{{ client.name }}</span>
+            </button>
+          </div>
           <div class="share-info">
             <div><span>{{ t('expiry') }}</span><strong>{{ formatExpiry(shareExpiry) }}</strong></div>
             <div><span>{{ t('totalTraffic') }}</span><strong>{{ formatBytes(shareTotal) }}</strong></div>
@@ -740,7 +804,6 @@ onBeforeUnmount(() => {
           </div>
           <textarea readonly :value="shareLink" @focus="selectShareText"></textarea>
           <div class="share-actions">
-            <button class="ghost" @click="() => copyShareLink()"><IconCopy />{{ t('copyLink') }}</button>
             <button class="primary" @click="shareOpen=false">{{ t('done') }}</button>
           </div>
         </div>

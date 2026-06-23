@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Inbound } from './api'
-import { buildShareLink } from './share'
+import { buildClientExport, buildNexoraNodeExport, buildShareLink } from './share'
 
 const inbound: Inbound = {
   id: 1, remark: 'demo', tag: 'inbound-1', listen: '0.0.0.0', port: 24443,
@@ -12,17 +12,33 @@ const inbound: Inbound = {
 }
 
 describe('share links', () => {
-  it('adds quota and expiry metadata to VLESS links', () => {
+  it('keeps standard VLESS links compact for v2rayN', () => {
     const url = new URL(buildShareLink(inbound, '203.0.113.10'))
-    expect(url.searchParams.get('xpanel_expiry')).toBe('2099-12-31T23:59:59Z')
-    expect(url.searchParams.get('xpanel_total_bytes')).toBe('1000')
-    expect(url.searchParams.get('xpanel_used_bytes')).toBe('250')
-    expect(url.searchParams.get('xpanel_remaining_bytes')).toBe('750')
+    expect(url.protocol).toBe('vless:')
+    expect(url.searchParams.get('type')).toBe('tcp')
+    expect(url.searchParams.has('xpanel_total_bytes')).toBe(false)
   })
 
-  it('adds quota and expiry metadata to VMess payloads', () => {
+  it('keeps standard VMess payloads compact', () => {
     const link = buildShareLink({ ...inbound, protocol: 'vmess' }, '203.0.113.10')
     const payload = JSON.parse(atob(link.slice('vmess://'.length)))
-    expect(payload.xpanel).toMatchObject({ total_bytes: 1000, used_bytes: 250, remain_bytes: 750 })
+    expect(payload.add).toBe('203.0.113.10')
+    expect(payload.xpanel).toBeUndefined()
+  })
+
+  it('exports Nexora node data with backend schema keys', () => {
+    const document = JSON.parse(buildNexoraNodeExport(inbound, '203.0.113.10'))
+    expect(document.client).toBe('Nexora')
+    expect(document.proxy_nodes[0]).toMatchObject({
+      name: 'demo',
+      address: '203.0.113.10',
+      credential: { uuid: inbound.clientId, email: inbound.email },
+    })
+    expect(document.proxy_nodes[0].config_json).toMatchObject({ total_bytes: 1000, remain_bytes: 750 })
+  })
+
+  it('builds client-specific exports', () => {
+    expect(buildClientExport(inbound, '203.0.113.10', 'clash')).toContain('proxies:')
+    expect(buildClientExport(inbound, '203.0.113.10', 'sing-box')).toContain('"outbounds"')
   })
 })

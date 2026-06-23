@@ -13,6 +13,7 @@ import (
 )
 
 type PublicNode struct {
+	ID             int64            `json:"id"`
 	Name           string           `json:"name"`
 	OriginalName   string           `json:"originalName,omitempty"`
 	Remark         string           `json:"remark"`
@@ -64,7 +65,7 @@ func BuildPublicDocument(item Subscription, nodes []inbound.Inbound, address str
 			name = node.Tag
 		}
 		publicNode := PublicNode{
-			Name: name, OriginalName: name, Remark: node.Remark, Protocol: node.Protocol, Address: nodeAddress, Port: node.Port,
+			ID: node.ID, Name: name, OriginalName: name, Remark: node.Remark, Protocol: node.Protocol, Address: nodeAddress, Port: node.Port,
 			Transport: node.Network, Network: node.Network, Security: node.Security, ClientID: node.ClientID, Email: node.Email,
 			AlterID: node.AlterID, WSPath: node.WSPath, Path: node.WSPath, TotalBytes: item.TotalBytes, UsedBytes: item.UsedBytes,
 			RemainingBytes: item.RemainingBytes, ExpiryTime: item.ExpiryTime,
@@ -84,8 +85,7 @@ func buildShareLink(item inbound.Inbound, address string) string {
 		payload := map[string]any{
 			"v": "2", "ps": item.Remark, "add": address, "port": item.Port, "id": item.ClientID,
 			"aid": item.AlterID, "net": item.Network, "type": "none", "host": "", "path": item.WSPath,
-			"tls":    item.Security,
-			"xpanel": backendMetadata(item, address),
+			"tls": item.Security,
 		}
 		content, _ := json.Marshal(payload)
 		return "vmess://" + base64.StdEncoding.EncodeToString(content)
@@ -95,48 +95,62 @@ func buildShareLink(item inbound.Inbound, address string) string {
 	values.Set("security", string(item.Security))
 	if item.WSPath != "" {
 		values.Set("path", item.WSPath)
-		values.Set("xpanel_path", item.WSPath)
-	}
-	for key, value := range backendMetadataStrings(item, address) {
-		values.Set(key, value)
 	}
 	return fmt.Sprintf("vless://%s@%s:%d?%s#%s", item.ClientID, address, item.Port, values.Encode(), url.QueryEscape(item.Remark))
 }
 
-func backendMetadata(item inbound.Inbound, address string) map[string]any {
-	return map[string]any{
-		"name": item.Remark, "original_name": item.Remark, "remark": item.Remark,
-		"protocol": item.Protocol, "address": address, "port": item.Port,
-		"transport": item.Network, "security": item.Security, "sni": "", "host": "",
-		"path": item.WSPath, "alpn": "", "email": item.Email,
-		"credential": map[string]any{"uuid": item.ClientID, "alter_id": item.AlterID},
-		"config":     map[string]any{"network": item.Network, "security": item.Security, "ws_path": item.WSPath},
-		"expire_at":  item.ExpiryTime, "total_bytes": item.TotalBytes,
-		"used_bytes": item.UsedBytes, "remain_bytes": item.RemainingBytes,
-	}
+type NexoraDocument struct {
+	Version       int          `json:"version"`
+	Client        string       `json:"client"`
+	Type          string       `json:"type"`
+	GeneratedAt   time.Time    `json:"generated_at"`
+	Subscriptions []NexoraFeed `json:"subscriptions"`
+	ProxyNodes    []NexoraNode `json:"proxy_nodes"`
 }
 
-func backendMetadataStrings(item inbound.Inbound, address string) map[string]string {
-	return map[string]string{
-		"xpanel_name":            item.Remark,
-		"xpanel_original_name":   item.Remark,
-		"xpanel_remark":          item.Remark,
-		"xpanel_protocol":        string(item.Protocol),
-		"xpanel_address":         address,
-		"xpanel_port":            strconv.Itoa(item.Port),
-		"xpanel_transport":       string(item.Network),
-		"xpanel_security":        string(item.Security),
-		"xpanel_sni":             "",
-		"xpanel_host":            "",
-		"xpanel_alpn":            "",
-		"xpanel_email":           item.Email,
-		"xpanel_expire_at":       item.ExpiryTime,
-		"xpanel_expiry":          item.ExpiryTime,
-		"xpanel_total_bytes":     strconv.FormatInt(item.TotalBytes, 10),
-		"xpanel_used_bytes":      strconv.FormatInt(item.UsedBytes, 10),
-		"xpanel_remain_bytes":    strconv.FormatInt(item.RemainingBytes, 10),
-		"xpanel_remaining_bytes": strconv.FormatInt(item.RemainingBytes, 10),
-	}
+type NexoraFeed struct {
+	ID             int64     `json:"id"`
+	UserID         int64     `json:"user_id"`
+	Name           string    `json:"name"`
+	URLCiphertext  string    `json:"url_ciphertext"`
+	URLHash        string    `json:"url_hash"`
+	Enabled        int       `json:"enabled"`
+	TotalBytes     int64     `json:"total_bytes"`
+	RemainBytes    int64     `json:"remain_bytes"`
+	ExpireAt       string    `json:"expire_at"`
+	LastUpdateTime time.Time `json:"last_update_time"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type NexoraNode struct {
+	ID                   int64          `json:"id"`
+	UserID               int64          `json:"user_id"`
+	SubscriptionID       int64          `json:"subscription_id"`
+	Name                 string         `json:"name"`
+	OriginalName         string         `json:"original_name"`
+	Remark               string         `json:"remark"`
+	Protocol             string         `json:"protocol"`
+	Address              string         `json:"address"`
+	Port                 int            `json:"port"`
+	Transport            string         `json:"transport"`
+	Security             string         `json:"security"`
+	SNI                  string         `json:"sni"`
+	Host                 string         `json:"host"`
+	Path                 string         `json:"path"`
+	ALPN                 string         `json:"alpn"`
+	CountryCode          string         `json:"country_code"`
+	Region               string         `json:"region"`
+	City                 string         `json:"city"`
+	CredentialCiphertext string         `json:"credential_ciphertext"`
+	Credential           map[string]any `json:"credential"`
+	ConfigJSON           map[string]any `json:"config_json"`
+	ShareLinkCiphertext  string         `json:"share_link_ciphertext"`
+	ShareLink            string         `json:"share_link"`
+	NodeHash             string         `json:"node_hash"`
+	Enabled              int            `json:"enabled"`
+	CreatedAt            time.Time      `json:"created_at"`
+	UpdatedAt            time.Time      `json:"updated_at"`
 }
 
 func BuildLinkList(item Subscription, nodes []inbound.Inbound, address string) []string {
@@ -146,6 +160,41 @@ func BuildLinkList(item Subscription, nodes []inbound.Inbound, address string) [
 		links = append(links, node.ShareLink)
 	}
 	return links
+}
+
+func BuildNexoraSubscription(item Subscription, nodes []inbound.Inbound, address string) NexoraDocument {
+	now := time.Now().UTC()
+	document := BuildPublicDocument(item, nodes, address)
+	enabled := 0
+	if item.Enabled {
+		enabled = 1
+	}
+	result := NexoraDocument{
+		Version:     1,
+		Client:      "Nexora",
+		Type:        "subscription",
+		GeneratedAt: now,
+		Subscriptions: []NexoraFeed{{
+			ID: item.ID, Name: item.Name, Enabled: enabled, TotalBytes: item.TotalBytes,
+			RemainBytes: item.RemainingBytes, ExpireAt: item.ExpiryTime, LastUpdateTime: now,
+			CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
+		}},
+		ProxyNodes: []NexoraNode{},
+	}
+	for _, node := range document.Nodes {
+		result.ProxyNodes = append(result.ProxyNodes, NexoraNode{
+			ID: node.ID, SubscriptionID: item.ID, Name: node.Name, OriginalName: node.OriginalName,
+			Remark: node.Remark, Protocol: string(node.Protocol), Address: node.Address, Port: node.Port,
+			Transport: string(node.Network), Security: string(node.Security), Path: node.WSPath,
+			Credential: map[string]any{"uuid": node.ClientID, "email": node.Email, "alter_id": node.AlterID},
+			ConfigJSON: map[string]any{
+				"network": node.Network, "total_bytes": item.TotalBytes, "used_bytes": item.UsedBytes,
+				"remain_bytes": item.RemainingBytes, "expire_at": item.ExpiryTime,
+			},
+			ShareLink: node.ShareLink, Enabled: 1, CreatedAt: now, UpdatedAt: now,
+		})
+	}
+	return result
 }
 
 func BuildV2RaySubscription(item Subscription, nodes []inbound.Inbound, address string) string {

@@ -228,6 +228,8 @@ func (h *Handler) publicSubscription(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Subscription-Userinfo", fmt.Sprintf("upload=0; download=%d; total=%d; expire=%d", document.UsedBytes, document.TotalBytes, expire))
 	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
 	switch format {
+	case "nexora":
+		writeJSON(w, http.StatusOK, subscription.BuildNexoraSubscription(item, nodes, host))
 	case "json", "xpanel":
 		writeJSON(w, http.StatusOK, document)
 	case "clash", "clash-meta", "mihomo":
