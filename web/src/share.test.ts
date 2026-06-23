@@ -23,6 +23,6 @@ describe('share links', () => {
   it('adds quota and expiry metadata to VMess payloads', () => {
     const link = buildShareLink({ ...inbound, protocol: 'vmess' }, '203.0.113.10')
     const payload = JSON.parse(atob(link.slice('vmess://'.length)))
-    expect(payload.xpanel).toMatchObject({ totalBytes: 1000, usedBytes: 250, remainingBytes: 750 })
+    expect(payload.xpanel).toMatchObject({ total_bytes: 1000, used_bytes: 250, remain_bytes: 750 })
   })
 })

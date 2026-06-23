@@ -226,7 +226,32 @@ func (h *Handler) publicSubscription(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Expose-Headers", "Subscription-Userinfo, Profile-Update-Interval")
 	w.Header().Set("Profile-Update-Interval", "1")
 	w.Header().Set("Subscription-Userinfo", fmt.Sprintf("upload=0; download=%d; total=%d; expire=%d", document.UsedBytes, document.TotalBytes, expire))
-	writeJSON(w, http.StatusOK, document)
+	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
+	switch format {
+	case "json", "xpanel":
+		writeJSON(w, http.StatusOK, document)
+	case "clash", "clash-meta", "mihomo":
+		w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(subscription.BuildClashSubscription(item, nodes, host)))
+	case "sing-box", "singbox":
+		content, buildErr := subscription.BuildSingBoxSubscription(item, nodes, host)
+		if buildErr != nil {
+			h.internalError(w, r, buildErr)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(content)
+	case "plain", "links":
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(strings.Join(subscription.BuildLinkList(item, nodes, host), "\n")))
+	default:
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(subscription.BuildV2RaySubscription(item, nodes, host)))
+	}
 }
 
 func (h *Handler) writeSubscriptionError(w http.ResponseWriter, r *http.Request, err error) {

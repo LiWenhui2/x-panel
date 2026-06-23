@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -209,7 +210,7 @@ func TestPublicSubscriptionDocument(t *testing.T) {
 	handler := New(inboundService, authMock, configcompiler.New(), runtime.JSONValidator{}, &memoryApplier{}, slog.New(slog.NewTextHandler(io.Discard, nil)), subscriptionService).Routes()
 	server := httptest.NewServer(handler)
 	defer server.Close()
-	response, err := server.Client().Get(server.URL + "/sub/" + token)
+	response, err := server.Client().Get(server.URL + "/sub/" + token + "?format=json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,5 +230,13 @@ func TestPublicSubscriptionDocument(t *testing.T) {
 	}
 	if document.TotalBytes != 4096 || document.ExpiryTime != "2099-01-02T03:04:05Z" || document.Nodes[0].TotalBytes != 4096 {
 		t.Fatalf("expected subscription quota metadata, got %#v", document)
+	}
+	response, err = server.Client().Get(server.URL + "/sub/" + token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if contentType := response.Header.Get("Content-Type"); !strings.HasPrefix(contentType, "text/plain") {
+		t.Fatalf("expected v2ray text subscription, got %s", contentType)
 	}
 }
