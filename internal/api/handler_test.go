@@ -198,7 +198,10 @@ func TestPublicSubscriptionDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	subscriptionService := subscription.NewService(store, inboundService)
-	_, token, err := subscriptionService.Create(ctx, subscription.Input{Name: "Client feed", Enabled: true, InboundIDs: []int64{node.ID}})
+	_, token, err := subscriptionService.Create(ctx, subscription.Input{
+		Name: "Client feed", Enabled: true, InboundIDs: []int64{node.ID},
+		TotalBytes: 4096, ExpiryTime: "2099-01-02T03:04:05Z",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,5 +226,8 @@ func TestPublicSubscriptionDocument(t *testing.T) {
 	}
 	if document.Name != "Client feed" || len(document.Nodes) != 1 || document.Nodes[0].ShareLink == "" {
 		t.Fatalf("unexpected document: %#v", document)
+	}
+	if document.TotalBytes != 4096 || document.ExpiryTime != "2099-01-02T03:04:05Z" || document.Nodes[0].TotalBytes != 4096 {
+		t.Fatalf("expected subscription quota metadata, got %#v", document)
 	}
 }

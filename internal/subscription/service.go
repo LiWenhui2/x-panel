@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"xpanel/internal/inbound"
 )
@@ -33,7 +34,14 @@ func NewService(repository Repository, inbounds InboundSource) *Service {
 }
 
 func (s *Service) List(ctx context.Context) ([]Subscription, error) {
-	return s.repository.ListSubscriptions(ctx)
+	items, err := s.repository.ListSubscriptions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for index := range items {
+		normalizeUsage(&items[index])
+	}
+	return items, nil
 }
 
 func (s *Service) Create(ctx context.Context, input Input) (Subscription, string, error) {
@@ -47,7 +55,9 @@ func (s *Service) Create(ctx context.Context, input Input) (Subscription, string
 	}
 	created, err := s.repository.CreateSubscription(ctx, Subscription{
 		Name: input.Name, Enabled: input.Enabled, InboundIDs: input.InboundIDs, TokenHint: hint,
+		TotalBytes: input.TotalBytes, ExpiryTime: input.ExpiryTime,
 	}, tokenHash)
+	normalizeUsage(&created)
 	return created, token, err
 }
 
@@ -60,6 +70,7 @@ func (s *Service) Update(ctx context.Context, id int64, input Input) (Subscripti
 	if err != nil {
 		return Subscription{}, mapNotFound(err)
 	}
+	normalizeUsage(&updated)
 	return updated, nil
 }
 
@@ -72,6 +83,7 @@ func (s *Service) Rotate(ctx context.Context, id int64) (Subscription, string, e
 	if err != nil {
 		return Subscription{}, "", mapNotFound(err)
 	}
+	normalizeUsage(&updated)
 	return updated, token, nil
 }
 
@@ -84,9 +96,10 @@ func (s *Service) Resolve(ctx context.Context, token string) (Subscription, []in
 		return Subscription{}, nil, ErrNotFound
 	}
 	item, err := s.repository.FindSubscriptionByTokenHash(ctx, hashToken(token))
-	if err != nil || !item.Enabled {
+	if err != nil || !subscriptionActive(item, time.Now().UTC()) {
 		return Subscription{}, nil, ErrNotFound
 	}
+	normalizeUsage(&item)
 	all, err := s.inbounds.List(ctx)
 	if err != nil {
 		return Subscription{}, nil, err
@@ -112,6 +125,15 @@ func (s *Service) validate(ctx context.Context, input Input) (Input, error) {
 	if len(input.InboundIDs) == 0 {
 		return Input{}, fmt.Errorf("%w: select at least one inbound", ErrInvalidInput)
 	}
+	if input.TotalBytes < 0 {
+		return Input{}, fmt.Errorf("%w: totalBytes cannot be negative", ErrInvalidInput)
+	}
+	if input.ExpiryTime == "" {
+		input.ExpiryTime = inbound.DefaultExpiryTime
+	}
+	if _, err := time.Parse(time.RFC3339, input.ExpiryTime); err != nil {
+		return Input{}, fmt.Errorf("%w: expiryTime must be RFC3339", ErrInvalidInput)
+	}
 	seen := map[int64]bool{}
 	for _, id := range input.InboundIDs {
 		if id <= 0 || seen[id] {
@@ -134,6 +156,31 @@ func (s *Service) validate(ctx context.Context, input Input) (Input, error) {
 	}
 	sort.Slice(input.InboundIDs, func(i, j int) bool { return input.InboundIDs[i] < input.InboundIDs[j] })
 	return input, nil
+}
+
+func normalizeUsage(item *Subscription) {
+	if item.ExpiryTime == "" {
+		item.ExpiryTime = inbound.DefaultExpiryTime
+	}
+	if item.TotalBytes > 0 {
+		item.RemainingBytes = item.TotalBytes - item.UsedBytes
+		if item.RemainingBytes < 0 {
+			item.RemainingBytes = 0
+		}
+	}
+}
+
+func subscriptionActive(item Subscription, now time.Time) bool {
+	if !item.Enabled {
+		return false
+	}
+	if item.TotalBytes > 0 && item.UsedBytes >= item.TotalBytes {
+		return false
+	}
+	if expiry, err := time.Parse(time.RFC3339, item.ExpiryTime); err == nil && !now.Before(expiry) {
+		return false
+	}
+	return true
 }
 
 func newToken() (string, string, string, error) {

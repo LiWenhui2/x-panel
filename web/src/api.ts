@@ -19,10 +19,12 @@ export type Inbound = {
   wsPath: string
   tlsCertFile: string
   tlsKeyFile: string
+  subscriptionControlled: boolean
+  subscriptionNames: string[]
   createdAt: string
 }
 
-export type CreateInbound = Omit<Inbound, 'id' | 'tag' | 'createdAt' | 'usedBytes' | 'remainingBytes'>
+export type CreateInbound = Omit<Inbound, 'id' | 'tag' | 'createdAt' | 'usedBytes' | 'remainingBytes' | 'subscriptionControlled' | 'subscriptionNames'>
 export type Credentials = { username: string; password: string }
 export type AuthStatus = { needsSetup: boolean; authenticated: boolean; username: string }
 export type Gauge = { used: number; total: number }
@@ -51,10 +53,14 @@ export type Subscription = {
   enabled: boolean
   inboundIds: number[]
   tokenHint: string
+  totalBytes: number
+  usedBytes: number
+  remainingBytes: number
+  expiryTime: string
   createdAt: string
   updatedAt: string
 }
-export type SubscriptionInput = Pick<Subscription, 'name' | 'enabled' | 'inboundIds'>
+export type SubscriptionInput = Pick<Subscription, 'name' | 'enabled' | 'inboundIds' | 'totalBytes' | 'expiryTime'>
 export type SubscriptionWithURL = { subscription: Subscription; url: string }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

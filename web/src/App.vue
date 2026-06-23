@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
-  IconAlertCircle, IconChartDonut, IconCheck, IconCopy, IconCpu, IconDashboard, IconDatabase,
+  IconAlertCircle, IconBrandGithub, IconChartDonut, IconCheck, IconCopy, IconCpu, IconDashboard, IconDatabase,
   IconDownload, IconEdit, IconKey, IconLink, IconLock, IconLogout, IconPlus, IconRefresh,
   IconRocket, IconServer, IconSettings, IconShieldCheck, IconTrash, IconUpload, IconUserCog, IconX,
 } from '@tabler/icons-vue'
@@ -43,7 +43,7 @@ const shareTotal = ref(0)
 const shareUsed = ref(0)
 const shareRemaining = ref(0)
 const subscriptionURLs = reactive<Record<number, string>>({})
-const subscriptionForm = reactive({ id: 0, name: '', enabled: true, inboundIds: [] as number[] })
+const subscriptionForm = reactive({ id: 0, name: '', enabled: true, inboundIds: [] as number[], totalGB: 0, expiryLocal: '2099-12-31T23:59' })
 const authForm = reactive({ username: '', password: '' })
 const settingsForm = reactive({ port: 0, username: '', password: '' })
 const language = ref<Language>((localStorage.getItem('xpanel-language') as Language) === 'en' ? 'en' : 'zh')
@@ -251,6 +251,8 @@ function openSubscription(item?: Subscription) {
   subscriptionForm.name = item?.name || ''
   subscriptionForm.enabled = item?.enabled ?? true
   subscriptionForm.inboundIds = [...(item?.inboundIds || [])]
+  subscriptionForm.totalGB = item?.totalBytes ? Number((item.totalBytes / gib).toFixed(2)) : 0
+  subscriptionForm.expiryLocal = toLocalInput(item?.expiryTime || '2099-12-31T23:59:59Z')
   subscriptionModalOpen.value = true
 }
 
@@ -264,7 +266,13 @@ async function saveSubscription() {
   loading.value = true
   error.value = ''
   try {
-    const input = { name: subscriptionForm.name, enabled: subscriptionForm.enabled, inboundIds: subscriptionForm.inboundIds }
+    const input = {
+      name: subscriptionForm.name,
+      enabled: subscriptionForm.enabled,
+      inboundIds: subscriptionForm.inboundIds,
+      totalBytes: Math.round(subscriptionForm.totalGB * gib),
+      expiryTime: subscriptionForm.expiryLocal ? new Date(subscriptionForm.expiryLocal).toISOString() : '',
+    }
     if (subscriptionForm.id) {
       await api.updateSubscription(subscriptionForm.id, input)
       notify(t('subscriptionUpdated'))
@@ -502,6 +510,7 @@ onBeforeUnmount(() => {
         <a :class="{ active: activeView === 'subscriptions' }" href="#" @click.prevent="showSubscriptions"><IconLink /><span>{{ t('subscriptions') }}</span><b>{{ subscriptions.length }}</b></a>
         <a :class="{ active: activeView === 'settings' }" href="#" @click.prevent="activeView='settings'"><IconSettings /><span>{{ t('settings') }}</span></a>
       </nav>
+      <a class="github-link" href="https://github.com/LiWenhui2/x-panel" target="_blank" rel="noreferrer"><IconBrandGithub />{{ t('github') }}</a>
       <button class="logout" @click="logout"><IconLogout />{{ t('signOut') }}</button>
     </aside>
 
@@ -580,8 +589,17 @@ onBeforeUnmount(() => {
                   <td><code>{{ item.listen }}</code></td>
                   <td><code>{{ item.port }}</code></td>
                   <td><span class="transport">{{ item.network }}</span><em v-if="item.security==='tls'">TLS</em></td>
-                  <td>{{ formatBytes(item.totalBytes) }}</td>
-                  <td>{{ formatExpiry(item.expiryTime) }}</td>
+                  <td>
+                    <template v-if="item.subscriptionControlled">
+                      <span class="managed-pill">{{ t('subscriptionControlled') }}</span>
+                      <small>{{ item.subscriptionNames.join(', ') }}</small>
+                    </template>
+                    <template v-else>{{ formatBytes(item.totalBytes) }}</template>
+                  </td>
+                  <td>
+                    <template v-if="item.subscriptionControlled"><small>{{ t('nodeQuotaIgnored') }}</small></template>
+                    <template v-else>{{ formatExpiry(item.expiryTime) }}</template>
+                  </td>
                   <td class="row-actions">
                     <button class="icon-button" :title="t('exportTitle')" @click="exportInbound(item)"><IconDownload /></button>
                     <button class="icon-button" :title="t('edit')" @click="openEdit(item)"><IconEdit /></button>
@@ -610,6 +628,11 @@ onBeforeUnmount(() => {
                 <small>{{ item.inboundIds.length }} {{ t('nodes') }}</small>
               </header>
               <div class="token-row"><IconKey /><code>••••••••{{ item.tokenHint }}</code></div>
+              <div class="subscription-usage">
+                <div><span>{{ t('subscriptionUsage') }}</span><strong>{{ formatBytesExact(item.usedBytes) }} / {{ item.totalBytes ? formatBytes(item.totalBytes) : t('unlimited') }}</strong></div>
+                <div><span>{{ t('remainingTraffic') }}</span><strong>{{ item.totalBytes ? formatBytesExact(item.remainingBytes) : t('unlimited') }}</strong></div>
+                <div><span>{{ t('expiry') }}</span><strong>{{ formatExpiry(item.expiryTime) }}</strong></div>
+              </div>
               <div class="subscription-nodes">
                 <span v-for="id in item.inboundIds" :key="id">{{ items.find(node => node.id === id)?.remark || `#${id}` }}</span>
               </div>
@@ -689,6 +712,8 @@ onBeforeUnmount(() => {
           <div class="form-grid">
             <label class="wide"><span>{{ t('subscriptionName') }}</span><input v-model.trim="subscriptionForm.name" :placeholder="t('subscriptionNamePlaceholder')" required autofocus /></label>
             <label><span>{{ t('enabled') }}</span><button type="button" :class="['switch', { on: subscriptionForm.enabled }]" @click="subscriptionForm.enabled=!subscriptionForm.enabled"><i></i>{{ subscriptionForm.enabled ? t('enabled') : t('disabled') }}</button></label>
+            <label><span>{{ t('subscriptionTraffic') }}</span><input v-model.number="subscriptionForm.totalGB" type="number" min="0" step="0.1" /></label>
+            <label class="wide"><span>{{ t('subscriptionExpiry') }}</span><input v-model="subscriptionForm.expiryLocal" type="datetime-local" /></label>
             <fieldset class="wide node-picker">
               <legend>{{ t('selectNodes') }}</legend>
               <label v-for="item in items" :key="item.id" :class="{ selected: subscriptionForm.inboundIds.includes(item.id) }">

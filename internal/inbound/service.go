@@ -44,21 +44,42 @@ func (s *Service) List(ctx context.Context) ([]Inbound, error) {
 	if err != nil {
 		return nil, err
 	}
+	bindings, err := s.subscriptionBindings(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if s.dependencies.TrafficReader != nil {
 		if usage, readErr := s.dependencies.TrafficReader.ReadAndReset(ctx); readErr == nil {
+			subscriptionsByInbound := subscriptionIDsByInbound(bindings)
 			for index := range items {
 				delta := usage[items[index].Email]
 				if delta > 0 {
-					if err := s.repository.AddUsedBytes(ctx, items[index].ID, delta); err != nil {
-						return nil, err
+					subscriptionIDs := subscriptionsByInbound[items[index].ID]
+					if len(subscriptionIDs) > 0 {
+						usageRepo, ok := s.repository.(SubscriptionUsageRepository)
+						if !ok {
+							return nil, fmt.Errorf("subscription traffic repository is not configured")
+						}
+						for _, subscriptionID := range subscriptionIDs {
+							if err := usageRepo.AddSubscriptionUsedBytes(ctx, subscriptionID, delta); err != nil {
+								return nil, err
+							}
+						}
+					} else {
+						if err := s.repository.AddUsedBytes(ctx, items[index].ID, delta); err != nil {
+							return nil, err
+						}
+						items[index].UsedBytes += delta
 					}
-					items[index].UsedBytes += delta
 				}
+			}
+			if refreshed, refreshErr := s.subscriptionBindings(ctx); refreshErr == nil {
+				bindings = refreshed
 			}
 		}
 	}
 	for index := range items {
-		normalizeUsage(&items[index])
+		normalizeUsage(&items[index], bindings)
 	}
 	return items, nil
 }
@@ -87,7 +108,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (Inbound, error
 	if err != nil {
 		return Inbound{}, err
 	}
-	normalizeUsage(&created)
+	normalizeUsage(&created, nil)
 	return created, nil
 }
 
@@ -118,13 +139,43 @@ func (s *Service) Update(ctx context.Context, id int64, input CreateInput) (Inbo
 	if err != nil {
 		return Inbound{}, err
 	}
-	normalizeUsage(&updated)
+	normalizeUsage(&updated, nil)
 	return updated, nil
 }
 
-func normalizeUsage(item *Inbound) {
+func (s *Service) subscriptionBindings(ctx context.Context) ([]SubscriptionBinding, error) {
+	usageRepo, ok := s.repository.(SubscriptionUsageRepository)
+	if !ok {
+		return nil, nil
+	}
+	return usageRepo.ListSubscriptionBindings(ctx)
+}
+
+func normalizeUsage(item *Inbound, bindings []SubscriptionBinding) {
 	if item.ExpiryTime == "" {
 		item.ExpiryTime = DefaultExpiryTime
+	}
+	now := time.Now().UTC()
+	if len(bindings) > 0 {
+		controlled, active := false, false
+		for _, binding := range bindings {
+			if !containsID(binding.InboundIDs, item.ID) {
+				continue
+			}
+			controlled = true
+			item.SubscriptionNames = append(item.SubscriptionNames, binding.Name)
+			if subscriptionActive(binding, now) {
+				active = true
+			}
+		}
+		if controlled {
+			item.SubscriptionControlled = true
+			item.TotalBytes = 0
+			item.RemainingBytes = 0
+			item.ExpiryTime = ""
+			item.Enabled = item.Enabled && active
+			return
+		}
 	}
 	if item.TotalBytes > 0 {
 		item.RemainingBytes = item.TotalBytes - item.UsedBytes
@@ -132,6 +183,44 @@ func normalizeUsage(item *Inbound) {
 			item.RemainingBytes = 0
 		}
 	}
+	if item.TotalBytes > 0 && item.UsedBytes >= item.TotalBytes {
+		item.Enabled = false
+	}
+	if expiry, err := time.Parse(time.RFC3339, item.ExpiryTime); err == nil && !now.Before(expiry) {
+		item.Enabled = false
+	}
+}
+
+func subscriptionIDsByInbound(bindings []SubscriptionBinding) map[int64][]int64 {
+	result := map[int64][]int64{}
+	for _, binding := range bindings {
+		for _, inboundID := range binding.InboundIDs {
+			result[inboundID] = append(result[inboundID], binding.ID)
+		}
+	}
+	return result
+}
+
+func containsID(ids []int64, id int64) bool {
+	for _, value := range ids {
+		if value == id {
+			return true
+		}
+	}
+	return false
+}
+
+func subscriptionActive(binding SubscriptionBinding, now time.Time) bool {
+	if !binding.Enabled {
+		return false
+	}
+	if binding.TotalBytes > 0 && binding.UsedBytes >= binding.TotalBytes {
+		return false
+	}
+	if expiry, err := time.Parse(time.RFC3339, binding.ExpiryTime); err == nil && !now.Before(expiry) {
+		return false
+	}
+	return true
 }
 
 func Validate(input CreateInput) error {

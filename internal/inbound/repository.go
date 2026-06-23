@@ -8,3 +8,8 @@ type Repository interface {
 	Update(context.Context, int64, Inbound) (Inbound, error)
 	AddUsedBytes(context.Context, int64, int64) error
 }
+
+type SubscriptionUsageRepository interface {
+	ListSubscriptionBindings(context.Context) ([]SubscriptionBinding, error)
+	AddSubscriptionUsedBytes(context.Context, int64, int64) error
+}

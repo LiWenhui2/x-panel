@@ -42,9 +42,11 @@ type PublicDocument struct {
 }
 
 func BuildPublicDocument(item Subscription, nodes []inbound.Inbound, address string) PublicDocument {
-	document := PublicDocument{Version: 1, Name: item.Name, GeneratedAt: time.Now().UTC(), Nodes: []PublicNode{}}
-	unlimited := false
-	var earliest time.Time
+	document := PublicDocument{
+		Version: itemVersion(), Name: item.Name, GeneratedAt: time.Now().UTC(),
+		TotalBytes: item.TotalBytes, UsedBytes: item.UsedBytes, RemainingBytes: item.RemainingBytes,
+		ExpiryTime: item.ExpiryTime, Nodes: []PublicNode{},
+	}
 	for _, node := range nodes {
 		nodeAddress := strings.TrimSpace(node.Listen)
 		if nodeAddress == "" || nodeAddress == "0.0.0.0" || nodeAddress == "::" || nodeAddress == "127.0.0.1" {
@@ -53,30 +55,18 @@ func BuildPublicDocument(item Subscription, nodes []inbound.Inbound, address str
 		publicNode := PublicNode{
 			Remark: node.Remark, Protocol: node.Protocol, Address: nodeAddress, Port: node.Port,
 			Network: node.Network, Security: node.Security, ClientID: node.ClientID, Email: node.Email,
-			AlterID: node.AlterID, WSPath: node.WSPath, TotalBytes: node.TotalBytes, UsedBytes: node.UsedBytes,
-			RemainingBytes: node.RemainingBytes, ExpiryTime: node.ExpiryTime,
+			AlterID: node.AlterID, WSPath: node.WSPath, TotalBytes: item.TotalBytes, UsedBytes: item.UsedBytes,
+			RemainingBytes: item.RemainingBytes, ExpiryTime: item.ExpiryTime,
 		}
-		publicNode.ShareLink = buildShareLink(node, nodeAddress)
+		linkNode := node
+		linkNode.TotalBytes, linkNode.UsedBytes, linkNode.RemainingBytes, linkNode.ExpiryTime = item.TotalBytes, item.UsedBytes, item.RemainingBytes, item.ExpiryTime
+		publicNode.ShareLink = buildShareLink(linkNode, nodeAddress)
 		document.Nodes = append(document.Nodes, publicNode)
-		document.UsedBytes += node.UsedBytes
-		if node.TotalBytes == 0 {
-			unlimited = true
-		} else {
-			document.TotalBytes += node.TotalBytes
-			document.RemainingBytes += node.RemainingBytes
-		}
-		if expiry, err := time.Parse(time.RFC3339, node.ExpiryTime); err == nil && (earliest.IsZero() || expiry.Before(earliest)) {
-			earliest = expiry
-		}
-	}
-	if unlimited {
-		document.TotalBytes, document.RemainingBytes = 0, 0
-	}
-	if !earliest.IsZero() {
-		document.ExpiryTime = earliest.Format(time.RFC3339)
 	}
 	return document
 }
+
+func itemVersion() int { return 2 }
 
 func buildShareLink(item inbound.Inbound, address string) string {
 	if item.Protocol == inbound.ProtocolVMess {

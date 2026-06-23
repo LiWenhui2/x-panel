@@ -97,7 +97,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .brand strong { font-size: 18px; }
 .brand small { color: #8793a5; font-size: 9px; font-weight: 800; letter-spacing: 0; }
 .sidebar nav { display: grid; gap: 8px; margin-top: 22px; }
-.sidebar a, .logout {
+.sidebar a, .logout, .github-link {
   min-height: 46px;
   display: flex;
   align-items: center;
@@ -108,7 +108,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   text-decoration: none;
   background: transparent;
 }
-.sidebar a svg, .logout svg { width: 19px; }
+.sidebar a svg, .logout svg, .github-link svg { width: 19px; }
 .sidebar a.active { color: #0f3f8f; background: #eaf2ff; }
 .sidebar a b {
   margin-left: auto;
@@ -120,7 +120,13 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   color: #1d4ed8;
   font-size: 11px;
 }
-.logout { margin-top: auto; width: 100%; font-weight: 800; }
+.github-link {
+  margin-top: auto;
+  font-weight: 800;
+  color: #111827;
+}
+.github-link:hover { background: #f3f4f6; }
+.logout { width: 100%; font-weight: 800; }
 .logout:hover { color: #991b1b; background: #fef2f2; }
 
 .content { margin-left: 250px; padding: 28px 34px 70px; min-height: 100vh; }
@@ -276,6 +282,15 @@ td small { margin-top: 3px; color: #9aa5b3; font-size: 10px; }
 .protocol { color: #1d4ed8; background: #dbeafe; }
 .transport { color: #047857; background: #d1fae5; }
 td em { margin-left: 5px; color: #92400e; background: #fef3c7; font-style: normal; }
+.managed-pill {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 8px;
+  color: #0f766e;
+  background: #ccfbf1;
+  font-size: 11px;
+  font-weight: 900;
+}
 .row-actions { display: flex; gap: 8px; }
 .icon-button, .danger-button, .close {
   width: 36px;
@@ -441,6 +456,32 @@ td em { margin-left: 5px; color: #92400e; background: #fef3c7; font-style: norma
   color: #334155;
   font-size: 12px;
 }
+.subscription-usage {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.subscription-usage div {
+  padding: 10px;
+  border: 1px solid #e4ebf4;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.subscription-usage span {
+  display: block;
+  color: #7a8798;
+  font-size: 11px;
+  font-weight: 800;
+}
+.subscription-usage strong {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #172033;
+  font-size: 12px;
+}
 .subscription-nodes { display: flex; flex-wrap: wrap; gap: 8px; }
 .subscription-nodes span {
   padding: 5px 9px;
@@ -500,7 +541,7 @@ td em { margin-left: 5px; color: #92400e; background: #fef3c7; font-style: norma
 @media (max-width: 940px) {
   .sidebar { width: 78px; }
   .brand { justify-content: center; }
-  .brand div, .sidebar a span, .sidebar a b, .logout { display: none; }
+  .brand div, .sidebar a span, .sidebar a b, .github-link, .logout { display: none; }
   .sidebar a { justify-content: center; }
   .content { margin-left: 78px; padding: 24px 18px; }
   .summary-grid, .detail-grid, .settings-grid { grid-template-columns: 1fr; }
@@ -519,6 +560,7 @@ td em { margin-left: 5px; color: #92400e; background: #fef3c7; font-style: norma
   .table-toolbar { display: block; }
   .toolbar-actions { margin-top: 14px; }
   .form-grid, .share-info { grid-template-columns: 1fr; }
+  .subscription-usage { grid-template-columns: 1fr; }
   .form-grid label.wide { grid-column: auto; }
   .modal-backdrop { padding: 0; }
   .modal { height: 100vh; max-height: none; border-radius: 0; }

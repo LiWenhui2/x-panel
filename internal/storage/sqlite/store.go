@@ -81,6 +81,9 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   token_hash TEXT NOT NULL UNIQUE,
   token_hint TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1,
+  total_bytes INTEGER NOT NULL DEFAULT 0,
+  used_bytes INTEGER NOT NULL DEFAULT 0,
+  expiry_time TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -93,7 +96,10 @@ CREATE TABLE IF NOT EXISTS subscription_inbounds (
 	if err != nil {
 		return fmt.Errorf("migrate sqlite: %w", err)
 	}
-	return s.ensureInboundColumns()
+	if err := s.ensureInboundColumns(); err != nil {
+		return err
+	}
+	return s.ensureSubscriptionColumns()
 }
 
 func (s *Store) HasUser(ctx context.Context) (bool, error) {
@@ -214,6 +220,45 @@ func (s *Store) ensureInboundColumns() error {
 	return nil
 }
 
+func (s *Store) ensureSubscriptionColumns() error {
+	rows, err := s.db.Query(`PRAGMA table_info(subscriptions)`)
+	if err != nil {
+		return err
+	}
+	existing := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, primaryKey int
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return err
+		}
+		existing[name] = true
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	columns := map[string]string{
+		"total_bytes": "INTEGER NOT NULL DEFAULT 0",
+		"used_bytes":  "INTEGER NOT NULL DEFAULT 0",
+		"expiry_time": "TEXT NOT NULL DEFAULT ''",
+	}
+	for name, definition := range columns {
+		if existing[name] {
+			continue
+		}
+		if _, err := s.db.Exec(`ALTER TABLE subscriptions ADD COLUMN ` + name + ` ` + definition); err != nil {
+			return fmt.Errorf("add subscription column %s: %w", name, err)
+		}
+	}
+	if _, err := s.db.Exec(`UPDATE subscriptions SET expiry_time = ? WHERE expiry_time = ''`, inbound.DefaultExpiryTime); err != nil {
+		return fmt.Errorf("backfill subscription expiry time: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) List(ctx context.Context) ([]inbound.Inbound, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, remark, tag, listen, port, protocol, network, security, client_id, email, enabled, total_bytes, used_bytes, expiry_time, alter_id, sniffing, ws_path, tls_cert_file, tls_key_file, created_at FROM inbounds ORDER BY id`)
 	if err != nil {
@@ -310,8 +355,8 @@ func (s *Store) CreateSubscription(ctx context.Context, item subscription.Subscr
 		return subscription.Subscription{}, err
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `INSERT INTO subscriptions (name, token_hash, token_hint, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		item.Name, tokenHash, item.TokenHint, item.Enabled, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
+	result, err := tx.ExecContext(ctx, `INSERT INTO subscriptions (name, token_hash, token_hint, enabled, total_bytes, used_bytes, expiry_time, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		item.Name, tokenHash, item.TokenHint, item.Enabled, item.TotalBytes, item.UsedBytes, item.ExpiryTime, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
 	if err != nil {
 		return subscription.Subscription{}, err
 	}
@@ -335,8 +380,8 @@ func (s *Store) UpdateSubscription(ctx context.Context, id int64, input subscrip
 		return subscription.Subscription{}, err
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `UPDATE subscriptions SET name = ?, enabled = ?, updated_at = ? WHERE id = ?`,
-		input.Name, input.Enabled, time.Now().UTC().Format(time.RFC3339Nano), id)
+	result, err := tx.ExecContext(ctx, `UPDATE subscriptions SET name = ?, enabled = ?, total_bytes = ?, expiry_time = ?, updated_at = ? WHERE id = ?`,
+		input.Name, input.Enabled, input.TotalBytes, input.ExpiryTime, time.Now().UTC().Format(time.RFC3339Nano), id)
 	if err != nil {
 		return subscription.Subscription{}, err
 	}
@@ -384,7 +429,7 @@ func (s *Store) FindSubscriptionByTokenHash(ctx context.Context, tokenHash strin
 }
 
 const subscriptionSelect = `
-SELECT s.id, s.name, s.enabled, s.token_hint, s.created_at, s.updated_at,
+SELECT s.id, s.name, s.enabled, s.token_hint, s.total_bytes, s.used_bytes, s.expiry_time, s.created_at, s.updated_at,
        COALESCE(GROUP_CONCAT(si.inbound_id, ','), '')
 FROM subscriptions s
 LEFT JOIN subscription_inbounds si ON si.subscription_id = s.id`
@@ -394,7 +439,7 @@ type rowScanner interface{ Scan(...any) error }
 func scanSubscription(scanner rowScanner) (subscription.Subscription, error) {
 	var item subscription.Subscription
 	var createdAt, updatedAt, inboundIDs string
-	if err := scanner.Scan(&item.ID, &item.Name, &item.Enabled, &item.TokenHint, &createdAt, &updatedAt, &inboundIDs); err != nil {
+	if err := scanner.Scan(&item.ID, &item.Name, &item.Enabled, &item.TokenHint, &item.TotalBytes, &item.UsedBytes, &item.ExpiryTime, &createdAt, &updatedAt, &inboundIDs); err != nil {
 		return subscription.Subscription{}, err
 	}
 	item.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
@@ -406,6 +451,15 @@ func scanSubscription(scanner rowScanner) (subscription.Subscription, error) {
 				return subscription.Subscription{}, err
 			}
 			item.InboundIDs = append(item.InboundIDs, id)
+		}
+	}
+	if item.ExpiryTime == "" {
+		item.ExpiryTime = inbound.DefaultExpiryTime
+	}
+	if item.TotalBytes > 0 {
+		item.RemainingBytes = item.TotalBytes - item.UsedBytes
+		if item.RemainingBytes < 0 {
+			item.RemainingBytes = 0
 		}
 	}
 	return item, nil
@@ -430,4 +484,28 @@ func replaceSubscriptionInbounds(ctx context.Context, tx *sql.Tx, subscriptionID
 		}
 	}
 	return nil
+}
+
+func (s *Store) ListSubscriptionBindings(ctx context.Context) ([]inbound.SubscriptionBinding, error) {
+	items, err := s.ListSubscriptions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	bindings := make([]inbound.SubscriptionBinding, 0, len(items))
+	for _, item := range items {
+		bindings = append(bindings, inbound.SubscriptionBinding{
+			ID: item.ID, Name: item.Name, Enabled: item.Enabled, InboundIDs: item.InboundIDs,
+			TotalBytes: item.TotalBytes, UsedBytes: item.UsedBytes, ExpiryTime: item.ExpiryTime,
+		})
+	}
+	return bindings, nil
+}
+
+func (s *Store) AddSubscriptionUsedBytes(ctx context.Context, id, delta int64) error {
+	if delta <= 0 {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE subscriptions SET used_bytes = used_bytes + ?, updated_at = ? WHERE id = ?`,
+		delta, time.Now().UTC().Format(time.RFC3339Nano), id)
+	return err
 }

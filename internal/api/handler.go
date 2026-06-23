@@ -145,6 +145,10 @@ func (h *Handler) createSubscription(w http.ResponseWriter, r *http.Request) {
 		h.writeSubscriptionError(w, r, err)
 		return
 	}
+	if _, err := h.applyCurrentConfig(r.Context()); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "auto_apply_failed", "subscription created, but Xray apply failed: "+err.Error())
+		return
+	}
 	writeJSON(w, http.StatusCreated, map[string]any{"subscription": item, "url": subscriptionURL(r, token)})
 }
 
@@ -160,6 +164,10 @@ func (h *Handler) updateSubscription(w http.ResponseWriter, r *http.Request) {
 	item, err := h.subscriptions.Update(r.Context(), id, input)
 	if err != nil {
 		h.writeSubscriptionError(w, r, err)
+		return
+	}
+	if _, err := h.applyCurrentConfig(r.Context()); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "auto_apply_failed", "subscription updated, but Xray apply failed: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
@@ -185,6 +193,10 @@ func (h *Handler) deleteSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.subscriptions.Delete(r.Context(), id); err != nil {
 		h.writeSubscriptionError(w, r, err)
+		return
+	}
+	if _, err := h.applyCurrentConfig(r.Context()); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "auto_apply_failed", "subscription deleted, but Xray apply failed: "+err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

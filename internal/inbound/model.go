@@ -18,27 +18,29 @@ const (
 )
 
 type Inbound struct {
-	ID             int64     `json:"id"`
-	Remark         string    `json:"remark"`
-	Tag            string    `json:"tag"`
-	Listen         string    `json:"listen"`
-	Port           int       `json:"port"`
-	Protocol       Protocol  `json:"protocol"`
-	Network        Network   `json:"network"`
-	Security       Security  `json:"security"`
-	ClientID       string    `json:"clientId"`
-	Email          string    `json:"email"`
-	Enabled        bool      `json:"enabled"`
-	TotalBytes     int64     `json:"totalBytes"`
-	UsedBytes      int64     `json:"usedBytes"`
-	RemainingBytes int64     `json:"remainingBytes"`
-	ExpiryTime     string    `json:"expiryTime"`
-	AlterID        int       `json:"alterId"`
-	Sniffing       bool      `json:"sniffing"`
-	WSPath         string    `json:"wsPath"`
-	TLSCertFile    string    `json:"tlsCertFile"`
-	TLSKeyFile     string    `json:"tlsKeyFile"`
-	CreatedAt      time.Time `json:"createdAt"`
+	ID                     int64     `json:"id"`
+	Remark                 string    `json:"remark"`
+	Tag                    string    `json:"tag"`
+	Listen                 string    `json:"listen"`
+	Port                   int       `json:"port"`
+	Protocol               Protocol  `json:"protocol"`
+	Network                Network   `json:"network"`
+	Security               Security  `json:"security"`
+	ClientID               string    `json:"clientId"`
+	Email                  string    `json:"email"`
+	Enabled                bool      `json:"enabled"`
+	TotalBytes             int64     `json:"totalBytes"`
+	UsedBytes              int64     `json:"usedBytes"`
+	RemainingBytes         int64     `json:"remainingBytes"`
+	ExpiryTime             string    `json:"expiryTime"`
+	AlterID                int       `json:"alterId"`
+	Sniffing               bool      `json:"sniffing"`
+	WSPath                 string    `json:"wsPath"`
+	TLSCertFile            string    `json:"tlsCertFile"`
+	TLSKeyFile             string    `json:"tlsKeyFile"`
+	SubscriptionControlled bool      `json:"subscriptionControlled"`
+	SubscriptionNames      []string  `json:"subscriptionNames"`
+	CreatedAt              time.Time `json:"createdAt"`
 }
 
 type CreateInput struct {
@@ -58,4 +60,14 @@ type CreateInput struct {
 	WSPath      string   `json:"wsPath"`
 	TLSCertFile string   `json:"tlsCertFile"`
 	TLSKeyFile  string   `json:"tlsKeyFile"`
+}
+
+type SubscriptionBinding struct {
+	ID         int64
+	Name       string
+	Enabled    bool
+	InboundIDs []int64
+	TotalBytes int64
+	UsedBytes  int64
+	ExpiryTime string
 }
