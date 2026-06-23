@@ -117,9 +117,14 @@ checkout_source() {
   log "Checking out source: ${REPO_URL} (${BRANCH})"
   install -d -m 0755 "$(dirname "${INSTALL_DIR}")"
   if [[ -d "${INSTALL_DIR}/.git" ]]; then
-    git -C "${INSTALL_DIR}" fetch --all --prune
-    git -C "${INSTALL_DIR}" checkout "${BRANCH}"
-    git -C "${INSTALL_DIR}" pull --ff-only origin "${BRANCH}"
+    log "Existing source tree found; resetting it to origin/${BRANCH}"
+    git -C "${INSTALL_DIR}" remote set-url origin "${REPO_URL}"
+    git -C "${INSTALL_DIR}" fetch origin "${BRANCH}" --prune
+    git -C "${INSTALL_DIR}" reset --hard
+    git -C "${INSTALL_DIR}" clean -fd
+    git -C "${INSTALL_DIR}" checkout -B "${BRANCH}" "origin/${BRANCH}"
+    git -C "${INSTALL_DIR}" reset --hard "origin/${BRANCH}"
+    git -C "${INSTALL_DIR}" clean -fd
   else
     rm -rf "${INSTALL_DIR}"
     git clone --branch "${BRANCH}" --depth 1 "${REPO_URL}" "${INSTALL_DIR}"
