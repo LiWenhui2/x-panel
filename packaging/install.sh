@@ -15,6 +15,49 @@ ADMIN_PASSWORD=${XPANEL_ADMIN_PASSWORD:-"admin123456"}
 log() { printf '\033[1;32m[XPANEL]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[XPANEL]\033[0m %s\n' "$*" >&2; exit 1; }
 
+progress_bar() {
+  local current=$1 width=32 filled empty
+  filled=$(( current * width / 100 ))
+  empty=$(( width - filled ))
+  printf '['
+  printf '%*s' "${filled}" '' | tr ' ' '#'
+  printf '%*s' "${empty}" '' | tr ' ' '-'
+  printf '] %3d%%' "${current}"
+}
+
+run_with_progress() {
+  local label=$1
+  shift
+  local progress=3 status=0 pid
+  log "${label}"
+  "$@" &
+  pid=$!
+  while kill -0 "${pid}" 2>/dev/null; do
+    printf '\r\033[1;32m[XPANEL]\033[0m '
+    progress_bar "${progress}"
+    printf ' %s' "${label}"
+    if (( progress < 95 )); then
+      progress=$(( progress + 3 ))
+    fi
+    sleep 1
+  done
+  wait "${pid}" || status=$?
+  if (( status == 0 )); then
+    printf '\r\033[1;32m[XPANEL]\033[0m '
+    progress_bar 100
+    printf ' %s\n' "${label}"
+  else
+    printf '\r\033[1;31m[XPANEL]\033[0m '
+    progress_bar "${progress}"
+    printf ' %s failed\n' "${label}" >&2
+  fi
+  return "${status}"
+}
+
+build_xpanel_binary() {
+  (cd "${INSTALL_DIR}" && CGO_ENABLED=0 go build -a -buildvcs=false -trimpath -ldflags='-s -w' -o dist/xpanel-linux-amd64 ./cmd/xpanel)
+}
+
 require_root() {
   [[ ${EUID} -eq 0 ]] || die "Please run as root."
 }
@@ -135,9 +178,8 @@ build_project() {
   log "Building web assets"
   npm --prefix "${INSTALL_DIR}/web" ci
   npm --prefix "${INSTALL_DIR}/web" run build
-  log "Building xpanel binary"
   mkdir -p "${INSTALL_DIR}/dist"
-  (cd "${INSTALL_DIR}" && CGO_ENABLED=0 go build -a -buildvcs=false -trimpath -ldflags='-s -w' -o dist/xpanel-linux-amd64 ./cmd/xpanel)
+  run_with_progress "Building xpanel binary" build_xpanel_binary
 }
 
 install_services() {
