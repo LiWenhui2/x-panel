@@ -46,6 +46,8 @@ const shareTotal = ref(0)
 const shareUsed = ref(0)
 const shareRemaining = ref(0)
 const shareNode = ref<Inbound | null>(null)
+const shareSource = ref<'inbound' | 'subscription'>('inbound')
+const shareSubscriptionURL = ref('')
 const selectedExportClient = ref<ExportClientId>('nexora')
 const shareQRCode = ref<HTMLCanvasElement | null>(null)
 const subscriptionURLs = reactive<Record<number, string>>({})
@@ -336,13 +338,22 @@ async function ensureSubscriptionURL(item: Subscription) {
   return result.url
 }
 
-async function exportSubscription(item: Subscription, client: ExportClientId) {
+async function exportSubscription(item: Subscription) {
   loading.value = true
   error.value = ''
   try {
-    const value = withSubscriptionFormat(await ensureSubscriptionURL(item), client)
-    await copyText(value)
-    notify(t('clientExportCopied', { client: clientName(client) }))
+    shareSource.value = 'subscription'
+    shareNode.value = null
+    shareRemark.value = item.name
+    shareExpiry.value = item.expiryTime
+    shareTotal.value = item.totalBytes
+    shareUsed.value = item.usedBytes
+    shareRemaining.value = item.remainingBytes
+    selectedExportClient.value = 'nexora'
+    shareSubscriptionURL.value = await ensureSubscriptionURL(item)
+    shareLink.value = withSubscriptionFormat(shareSubscriptionURL.value, selectedExportClient.value)
+    shareOpen.value = true
+    void renderShareQRCode()
   } catch (cause) { fail(errorText(cause)) }
   finally { loading.value = false }
 }
@@ -437,7 +448,9 @@ async function restartPanel() {
 }
 
 function exportInbound(item: Inbound) {
+  shareSource.value = 'inbound'
   shareNode.value = item
+  shareSubscriptionURL.value = ''
   shareRemark.value = item.remark || item.tag
   shareExpiry.value = item.expiryTime
   shareTotal.value = item.totalBytes
@@ -450,19 +463,25 @@ function exportInbound(item: Inbound) {
 }
 
 async function copyClientExport(client: ExportClientId, showToast = true) {
-  if (!shareNode.value) return
   selectedExportClient.value = client
-  shareLink.value = buildClientExport(shareNode.value, exportAddress(shareNode.value.listen), client)
+  refreshShareLink()
   if (!shareLink.value) return
   await copyText(shareLink.value)
   if (showToast) notify(t('clientExportCopied', { client: clientName(client) }))
 }
 
 function selectShareClient(client: ExportClientId) {
-  if (!shareNode.value) return
   selectedExportClient.value = client
-  shareLink.value = buildClientExport(shareNode.value, exportAddress(shareNode.value.listen), client)
+  refreshShareLink()
   void renderShareQRCode()
+}
+
+function refreshShareLink() {
+  if (shareSource.value === 'subscription') {
+    shareLink.value = shareSubscriptionURL.value ? withSubscriptionFormat(shareSubscriptionURL.value, selectedExportClient.value) : ''
+    return
+  }
+  shareLink.value = shareNode.value ? buildClientExport(shareNode.value, exportAddress(shareNode.value.listen), selectedExportClient.value) : ''
 }
 
 async function renderShareQRCode() {
@@ -728,20 +747,8 @@ onBeforeUnmount(() => {
               <p v-if="subscriptionURLs[item.id]" class="fresh-url">{{ subscriptionURLs[item.id] }}</p>
               <p v-else class="url-hint">{{ t('tokenHidden') }}</p>
               <div class="subscription-card-bottom">
-                <div class="client-export-row" :aria-label="t('exportClients')">
-                  <button
-                    v-for="client in exportClients"
-                    :key="client.id"
-                    class="client-export-button"
-                    :class="{ nexora: client.id === 'nexora' }"
-                    :disabled="loading"
-                    @click="exportSubscription(item, client.id)"
-                  >
-                    <img :src="clientIcon(client.id)" alt="" />
-                    <span>{{ client.name }}</span>
-                  </button>
-                </div>
                 <footer>
+                  <button class="icon-button" :title="t('exportTitle')" :disabled="loading" @click="exportSubscription(item)"><IconDownload /></button>
                   <button class="icon-button" :title="t('rotate')" @click="rotateSubscription(item)"><IconRefresh /></button>
                   <button class="icon-button" :title="t('edit')" @click="openSubscription(item)"><IconEdit /></button>
                   <button class="danger-button" @click="removeSubscription(item)"><IconTrash /></button>

@@ -579,6 +579,7 @@ td em { margin-left: 5px; color: #92400e; background: #fef3c7; font-style: norma
 .subscription-card-bottom {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 12px;
   min-width: 0;
 }
@@ -671,8 +672,7 @@ td em { margin-left: 5px; color: #92400e; background: #fef3c7; font-style: norma
   .gauge-grid { grid-template-columns: repeat(2, 1fr); }
   .subscription-card-top { grid-template-columns: 1fr; }
   .subscription-usage { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
-  .subscription-card-bottom { flex-wrap: wrap; align-items: stretch; }
-  .subscription-card footer { width: 100%; }
+  .subscription-card-bottom { align-items: center; }
 }
 @media (max-width: 940px) {
   .sidebar { width: 78px; }
@@ -699,7 +699,7 @@ td em { margin-left: 5px; color: #92400e; background: #fef3c7; font-style: norma
   .form-grid, .share-info, .share-layout { grid-template-columns: 1fr; }
   .subscription-usage { grid-template-columns: 1fr; }
   .subscription-card { padding: 14px; }
-  .subscription-card-bottom { display: grid; }
+  .subscription-card-bottom { display: flex; justify-content: flex-start; }
   .client-export-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .subscription-card footer { justify-content: flex-start; width: auto; }
   .settings-grid, .settings-panel form, .settings-inline-form { grid-template-columns: 1fr !important; }
