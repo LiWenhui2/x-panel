@@ -28,7 +28,7 @@ progress_bar() {
 run_with_progress() {
   local label=$1
   shift
-  local progress=3 status=0 pid
+  local progress=2 status=0 pid
   log "${label}"
   "$@" &
   pid=$!
@@ -37,7 +37,7 @@ run_with_progress() {
     progress_bar "${progress}"
     printf ' %s' "${label}"
     if (( progress < 95 )); then
-      progress=$(( progress + 3 ))
+      progress=$(( progress + 2 ))
     fi
     sleep 1
   done

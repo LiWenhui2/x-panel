@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
-  IconAlertCircle, IconBrandGithub, IconChartDonut, IconCheck, IconCpu, IconDashboard, IconDatabase,
-  IconDownload, IconEdit, IconKey, IconLink, IconLock, IconLogout, IconPlus, IconRefresh,
-  IconRocket, IconServer, IconSettings, IconShieldCheck, IconTrash, IconUpload, IconUserCog, IconX,
+  IconAlertCircle, IconBrandGithub, IconChartDonut, IconCheck, IconChevronDown, IconCopy, IconCpu,
+  IconDashboard, IconDatabase, IconDownload, IconEdit, IconExternalLink, IconKey, IconLink, IconLock,
+  IconLogout, IconPlus, IconRefresh, IconRocket, IconServer, IconSettings, IconTrash, IconUpload,
+  IconShieldCheck, IconUserCog, IconX,
 } from '@tabler/icons-vue'
+import QRCode from 'qrcode'
 import {
   api,
   type CreateInbound,
@@ -32,6 +34,7 @@ const loading = ref(false)
 const loadingNodes = ref(false)
 const modalOpen = ref(false)
 const shareOpen = ref(false)
+const githubExpanded = ref(false)
 const subscriptionModalOpen = ref(false)
 const editingInboundId = ref<number | null>(null)
 const activeView = ref<View>('overview')
@@ -44,6 +47,7 @@ const shareUsed = ref(0)
 const shareRemaining = ref(0)
 const shareNode = ref<Inbound | null>(null)
 const selectedExportClient = ref<ExportClientId>('nexora')
+const shareQRCode = ref<HTMLCanvasElement | null>(null)
 const subscriptionURLs = reactive<Record<number, string>>({})
 const subscriptionForm = reactive({ id: 0, name: '', enabled: true, inboundIds: [] as number[], totalGB: 0, expiryLocal: '2099-12-31T23:59' })
 const authForm = reactive({ username: '', password: '' })
@@ -55,6 +59,10 @@ const exportClients: Array<{ id: ExportClientId; name: string }> = [
   { id: 'v2rayn', name: 'v2rayN' },
   { id: 'clash', name: 'Clash' },
   { id: 'sing-box', name: 'sing-box' },
+]
+const githubProjects = [
+  { name: 'Nexora', url: 'https://github.com/LiWenhui2/Nexora' },
+  { name: 'XPanel', url: 'https://github.com/LiWenhui2/x-panel' },
 ]
 const form = reactive<FormState>(newForm())
 let sessionTimer: number | undefined
@@ -438,7 +446,7 @@ function exportInbound(item: Inbound) {
   selectedExportClient.value = 'nexora'
   shareLink.value = buildClientExport(item, exportAddress(item.listen), selectedExportClient.value)
   shareOpen.value = true
-  void copyClientExport(selectedExportClient.value, false)
+  void renderShareQRCode()
 }
 
 async function copyClientExport(client: ExportClientId, showToast = true) {
@@ -448,6 +456,35 @@ async function copyClientExport(client: ExportClientId, showToast = true) {
   if (!shareLink.value) return
   await copyText(shareLink.value)
   if (showToast) notify(t('clientExportCopied', { client: clientName(client) }))
+}
+
+function selectShareClient(client: ExportClientId) {
+  if (!shareNode.value) return
+  selectedExportClient.value = client
+  shareLink.value = buildClientExport(shareNode.value, exportAddress(shareNode.value.listen), client)
+  void renderShareQRCode()
+}
+
+async function renderShareQRCode() {
+  await nextTick()
+  if (!shareQRCode.value || !shareLink.value) return
+  try {
+    await QRCode.toCanvas(shareQRCode.value, shareLink.value, {
+      width: 260,
+      margin: 2,
+      errorCorrectionLevel: 'L',
+      color: { dark: '#111827', light: '#ffffff' },
+    })
+  } catch {
+    const context = shareQRCode.value.getContext('2d')
+    context?.clearRect(0, 0, shareQRCode.value.width, shareQRCode.value.height)
+  }
+}
+
+function clientIcon(client: ExportClientId) {
+  if (client === 'nexora') return '/nexora.png'
+  if (client === 'clash') return '/clash.jpg'
+  return `/${client}.png`
 }
 
 function clientName(client: ExportClientId) {
@@ -473,10 +510,6 @@ async function copyText(value: string) {
   textarea.select()
   document.execCommand('copy')
   document.body.removeChild(textarea)
-}
-
-function selectShareText(event: FocusEvent) {
-  if (event.target instanceof HTMLTextAreaElement) event.target.select()
 }
 
 function formatBytes(value: number) {
@@ -554,8 +587,15 @@ onBeforeUnmount(() => {
         <a :class="{ active: activeView === 'inbounds' }" href="#" @click.prevent="activeView='inbounds'"><IconServer /><span>{{ t('inbounds') }}</span><b>{{ items.length }}</b></a>
         <a :class="{ active: activeView === 'subscriptions' }" href="#" @click.prevent="showSubscriptions"><IconLink /><span>{{ t('subscriptions') }}</span><b>{{ subscriptions.length }}</b></a>
         <a :class="{ active: activeView === 'settings' }" href="#" @click.prevent="activeView='settings'"><IconSettings /><span>{{ t('settings') }}</span></a>
+        <button class="sidebar-menu-button" :class="{ expanded: githubExpanded }" @click="githubExpanded=!githubExpanded">
+          <IconBrandGithub /><span>{{ t('github') }}</span><IconChevronDown class="menu-chevron" />
+        </button>
+        <div v-if="githubExpanded" class="github-submenu">
+          <a v-for="project in githubProjects" :key="project.name" :href="project.url" target="_blank" rel="noreferrer">
+            <span>{{ project.name }}</span><IconExternalLink />
+          </a>
+        </div>
       </nav>
-      <a class="github-link" href="https://github.com/LiWenhui2/x-panel" target="_blank" rel="noreferrer"><IconBrandGithub />{{ t('github') }}</a>
       <button class="logout" @click="logout"><IconLogout />{{ t('signOut') }}</button>
     </aside>
 
@@ -692,10 +732,7 @@ onBeforeUnmount(() => {
                   :disabled="loading"
                   @click="exportSubscription(item, client.id)"
                 >
-                  <img v-if="client.id === 'nexora'" src="/nexora.png" alt="" />
-                  <IconServer v-else-if="client.id === 'v2rayn'" />
-                  <IconShieldCheck v-else-if="client.id === 'clash'" />
-                  <IconDatabase v-else />
+                  <img :src="clientIcon(client.id)" alt="" />
                   <span>{{ client.name }}</span>
                 </button>
               </div>
@@ -705,8 +742,8 @@ onBeforeUnmount(() => {
                   <button class="renew-button" :disabled="loading" @click="renewSubscription(item, 90)">+90 {{ t('days') }}</button>
                   <button class="renew-button" :disabled="loading" @click="renewSubscription(item, 365)">+1 {{ t('year') }}</button>
                 </div>
-                <button class="ghost" @click="rotateSubscription(item)"><IconRefresh />{{ t('rotate') }}</button>
-                <button class="ghost" @click="openSubscription(item)"><IconEdit />{{ t('edit') }}</button>
+                <button class="icon-button" :title="t('rotate')" @click="rotateSubscription(item)"><IconRefresh /></button>
+                <button class="icon-button" :title="t('edit')" @click="openSubscription(item)"><IconEdit /></button>
                 <button class="danger-button" @click="removeSubscription(item)"><IconTrash /></button>
               </footer>
             </article>
@@ -716,22 +753,27 @@ onBeforeUnmount(() => {
       </template>
 
       <template v-else>
-        <section class="settings-grid">
-          <article class="settings-panel">
-            <header><IconSettings /><h2>{{ t('panelPort') }}</h2></header>
-            <form @submit.prevent="savePanelPort">
-              <label><span>{{ t('port') }}</span><input v-model.number="settingsForm.port" type="number" min="1" max="65535" required /></label>
-              <button class="primary" :disabled="loading"><IconCheck />{{ t('savePort') }}</button>
-            </form>
-          </article>
-          <article class="settings-panel">
-            <header><IconUserCog /><h2>{{ t('accountSecurity') }}</h2></header>
-            <form @submit.prevent="saveAccount">
-              <label><span>{{ t('newUsername') }}</span><input v-model.trim="settingsForm.username" autocomplete="username" required /></label>
-              <label><span>{{ t('newPassword') }}</span><input v-model="settingsForm.password" type="password" autocomplete="new-password" required /></label>
-              <button class="primary" :disabled="loading"><IconCheck />{{ t('saveAccount') }}</button>
-            </form>
-          </article>
+        <section class="settings-workspace">
+          <header class="settings-heading">
+            <div><IconSettings /><div><h2>{{ t('settings') }}</h2><span>{{ t('settingsDescription') }}</span></div></div>
+          </header>
+          <div class="settings-grid">
+            <article class="settings-panel">
+              <header><IconSettings /><div><h3>{{ t('panelPort') }}</h3><span>{{ panelSettings?.listen || '-' }}</span></div></header>
+              <form class="settings-inline-form" @submit.prevent="savePanelPort">
+                <label><span>{{ t('port') }}</span><input v-model.number="settingsForm.port" type="number" min="1" max="65535" required /></label>
+                <button class="primary" :disabled="loading"><IconCheck />{{ t('savePort') }}</button>
+              </form>
+            </article>
+            <article class="settings-panel account-panel">
+              <header><IconUserCog /><div><h3>{{ t('accountSecurity') }}</h3><span>{{ username }}</span></div></header>
+              <form @submit.prevent="saveAccount">
+                <label><span>{{ t('newUsername') }}</span><input v-model.trim="settingsForm.username" autocomplete="username" required /></label>
+                <label><span>{{ t('newPassword') }}</span><input v-model="settingsForm.password" type="password" autocomplete="new-password" required /></label>
+                <button class="primary" :disabled="loading"><IconCheck />{{ t('saveAccount') }}</button>
+              </form>
+            </article>
+          </div>
           <article v-if="restartNeeded" class="restart-panel">
             <IconAlertCircle />
             <strong>{{ t('restartRequired') }}</strong>
@@ -796,30 +838,35 @@ onBeforeUnmount(() => {
       <section class="modal share-modal" role="dialog" aria-modal="true">
         <header><div><p>{{ t('clientImportLink') }}</p><h2>{{ t('exportName', { name: shareRemark }) }}</h2></div><button class="close" @click="shareOpen=false"><IconX /></button></header>
         <div class="share-body">
-          <p>{{ t('pasteLink') }}</p>
-          <div class="client-export-row modal-client-row" :aria-label="t('exportClients')">
-            <button
-              v-for="client in exportClients"
-              :key="client.id"
-              class="client-export-button"
-              :class="{ active: selectedExportClient === client.id, nexora: client.id === 'nexora' }"
-              @click="copyClientExport(client.id)"
-            >
-              <img v-if="client.id === 'nexora'" src="/nexora.png" alt="" />
-              <IconServer v-else-if="client.id === 'v2rayn'" />
-              <IconShieldCheck v-else-if="client.id === 'clash'" />
-              <IconDatabase v-else />
-              <span>{{ client.name }}</span>
-            </button>
+          <div class="share-layout">
+            <div class="share-options">
+              <div class="client-export-row modal-client-row" :aria-label="t('exportClients')">
+                <button
+                  v-for="client in exportClients"
+                  :key="client.id"
+                  class="client-export-button"
+                  :class="{ active: selectedExportClient === client.id, nexora: client.id === 'nexora' }"
+                  @click="selectShareClient(client.id)"
+                >
+                  <img :src="clientIcon(client.id)" alt="" />
+                  <span>{{ client.name }}</span>
+                </button>
+              </div>
+              <div class="share-info">
+                <div><span>{{ t('expiry') }}</span><strong>{{ formatExpiry(shareExpiry) }}</strong></div>
+                <div><span>{{ t('totalTraffic') }}</span><strong>{{ formatBytes(shareTotal) }}</strong></div>
+                <div><span>{{ t('usedTraffic') }}</span><strong>{{ formatBytesExact(shareUsed) }}</strong></div>
+                <div><span>{{ t('remainingTraffic') }}</span><strong>{{ shareTotal ? formatBytesExact(shareRemaining) : t('unlimited') }}</strong></div>
+              </div>
+            </div>
+            <div class="qr-panel">
+              <canvas ref="shareQRCode"></canvas>
+              <strong>{{ clientName(selectedExportClient) }}</strong>
+              <span>{{ t('scanToImport') }}</span>
+            </div>
           </div>
-          <div class="share-info">
-            <div><span>{{ t('expiry') }}</span><strong>{{ formatExpiry(shareExpiry) }}</strong></div>
-            <div><span>{{ t('totalTraffic') }}</span><strong>{{ formatBytes(shareTotal) }}</strong></div>
-            <div><span>{{ t('usedTraffic') }}</span><strong>{{ formatBytesExact(shareUsed) }}</strong></div>
-            <div><span>{{ t('remainingTraffic') }}</span><strong>{{ shareTotal ? formatBytesExact(shareRemaining) : t('unlimited') }}</strong></div>
-          </div>
-          <textarea readonly :value="shareLink" @focus="selectShareText"></textarea>
           <div class="share-actions">
+            <button class="ghost" @click="copyClientExport(selectedExportClient)"><IconCopy />{{ t('copyLink') }}</button>
             <button class="primary" @click="shareOpen=false">{{ t('done') }}</button>
           </div>
         </div>
