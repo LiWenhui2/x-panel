@@ -737,11 +737,6 @@ onBeforeUnmount(() => {
                 </button>
               </div>
               <footer>
-                <div class="renew-actions">
-                  <button class="renew-button" :disabled="loading" @click="renewSubscription(item, 30)">+30 {{ t('days') }}</button>
-                  <button class="renew-button" :disabled="loading" @click="renewSubscription(item, 90)">+90 {{ t('days') }}</button>
-                  <button class="renew-button" :disabled="loading" @click="renewSubscription(item, 365)">+1 {{ t('year') }}</button>
-                </div>
                 <button class="icon-button" :title="t('rotate')" @click="rotateSubscription(item)"><IconRefresh /></button>
                 <button class="icon-button" :title="t('edit')" @click="openSubscription(item)"><IconEdit /></button>
                 <button class="danger-button" @click="removeSubscription(item)"><IconTrash /></button>
