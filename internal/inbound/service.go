@@ -155,17 +155,18 @@ func normalizeUsage(item *Inbound, bindings []SubscriptionBinding) {
 	if item.ExpiryTime == "" {
 		item.ExpiryTime = DefaultExpiryTime
 	}
+	configuredEnabled := item.Enabled
 	now := time.Now().UTC()
 	if len(bindings) > 0 {
-		controlled, active := false, false
+		controlled, active := false, true
 		for _, binding := range bindings {
 			if !containsID(binding.InboundIDs, item.ID) {
 				continue
 			}
 			controlled = true
 			item.SubscriptionNames = append(item.SubscriptionNames, binding.Name)
-			if subscriptionActive(binding, now) {
-				active = true
+			if !subscriptionActive(binding, now) {
+				active = false
 			}
 		}
 		if controlled {
@@ -174,6 +175,7 @@ func normalizeUsage(item *Inbound, bindings []SubscriptionBinding) {
 			item.RemainingBytes = 0
 			item.ExpiryTime = ""
 			item.Enabled = item.Enabled && active
+			item.TrafficBlocked = configuredEnabled && !active
 			return
 		}
 	}
@@ -185,9 +187,11 @@ func normalizeUsage(item *Inbound, bindings []SubscriptionBinding) {
 	}
 	if item.TotalBytes > 0 && item.UsedBytes >= item.TotalBytes {
 		item.Enabled = false
+		item.TrafficBlocked = configuredEnabled
 	}
 	if expiry, err := time.Parse(time.RFC3339, item.ExpiryTime); err == nil && !now.Before(expiry) {
 		item.Enabled = false
+		item.TrafficBlocked = configuredEnabled
 	}
 }
 

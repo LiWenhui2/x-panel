@@ -40,6 +40,7 @@ type Inbound struct {
 	TLSKeyFile             string    `json:"tlsKeyFile"`
 	SubscriptionControlled bool      `json:"subscriptionControlled"`
 	SubscriptionNames      []string  `json:"subscriptionNames"`
+	TrafficBlocked         bool      `json:"trafficBlocked"`
 	CreatedAt              time.Time `json:"createdAt"`
 }
 

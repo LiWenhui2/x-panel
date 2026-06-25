@@ -16,6 +16,7 @@ import (
 	"xpanel/internal/auth"
 	"xpanel/internal/configcompiler"
 	"xpanel/internal/inbound"
+	"xpanel/internal/reconcile"
 	"xpanel/internal/runtime"
 	"xpanel/internal/storage/sqlite"
 	"xpanel/internal/subscription"
@@ -91,6 +92,9 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	go (&reconcile.Reconciler{
+		Source: service, Compiler: configcompiler.New(), Applier: applier, Logger: logger, Interval: 2 * time.Second,
+	}).Run(ctx)
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

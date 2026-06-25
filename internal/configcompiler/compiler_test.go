@@ -58,3 +58,31 @@ func TestCompileVMessWebSocketAndSniffing(t *testing.T) {
 		t.Fatal("sniffing was not compiled")
 	}
 }
+
+func TestCompileRoutesBlockedInboundToBlackhole(t *testing.T) {
+	item := inbound.Inbound{
+		ID: 3, Tag: "inbound-3", Listen: "0.0.0.0", Port: 30443,
+		Protocol: inbound.ProtocolVLESS, Network: inbound.NetworkTCP, Security: inbound.SecurityNone,
+		ClientID: "33333333-3333-4333-8333-333333333333", Email: "blocked@example.com",
+		TrafficBlocked: true,
+	}
+	result, err := New().Compile([]inbound.Inbound{item})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Inbounds []map[string]any `json:"inbounds"`
+		Routing  struct {
+			Rules []map[string]any `json:"rules"`
+		} `json:"routing"`
+	}
+	if err := json.Unmarshal(result.Content, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Inbounds) != 2 {
+		t.Fatalf("expected blocked inbound to remain configured, got %d inbounds", len(decoded.Inbounds))
+	}
+	if len(decoded.Routing.Rules) != 2 || decoded.Routing.Rules[1]["outboundTag"] != "blocked" {
+		t.Fatalf("expected blocked routing rule, got %+v", decoded.Routing.Rules)
+	}
+}

@@ -252,3 +252,41 @@ func TestPublicSubscriptionDocument(t *testing.T) {
 		t.Fatalf("expected v2ray text subscription, got %s", contentType)
 	}
 }
+
+func TestInactivePublicSubscriptionReturnsEmptyGone(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	inboundService := inbound.NewService(store)
+	node, err := inboundService.Create(ctx, inbound.CreateInput{
+		Remark: "Expired node", Listen: "0.0.0.0", Port: 32443, Protocol: inbound.ProtocolVLESS,
+		Network: inbound.NetworkTCP, Security: inbound.SecurityNone,
+		ClientID: "44444444-4444-4444-8444-444444444444", Email: "expired@example.com", Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscriptionService := subscription.NewService(store, inboundService)
+	_, token, err := subscriptionService.Create(ctx, subscription.Input{
+		Name: "Expired", Enabled: true, InboundIDs: []int64{node.ID},
+		ExpiryTime: "2020-01-01T00:00:00Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := New(inboundService, &memoryAuth{}, configcompiler.New(), runtime.JSONValidator{}, &memoryApplier{}, slog.New(slog.NewTextHandler(io.Discard, nil)), subscriptionService).Routes()
+	request := httptest.NewRequest(http.MethodGet, "/sub/"+token, nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusGone {
+		t.Fatalf("expected 410, got %d: %s", response.Code, response.Body.String())
+	}
+	if response.Body.Len() != 0 {
+		t.Fatalf("expected an empty inactive subscription response, got %q", response.Body.String())
+	}
+}

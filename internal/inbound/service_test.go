@@ -90,6 +90,42 @@ func TestSubscriptionControlledNodeTrafficAccruesToSubscription(t *testing.T) {
 	}
 }
 
+func TestInactiveSubscriptionBlocksBoundNodeTraffic(t *testing.T) {
+	repository := &testRepository{items: []Inbound{{
+		ID: 1, Tag: "inbound-1", Remark: "sub node", Listen: "0.0.0.0", Port: 24443,
+		Protocol: ProtocolVLESS, Network: NetworkTCP, Security: SecurityNone,
+		ClientID: "11111111-1111-4111-8111-111111111111", Email: "sub@example.com", Enabled: true,
+	}}, subscriptions: []SubscriptionBinding{{
+		ID: 9, Name: "exhausted", Enabled: true, InboundIDs: []int64{1},
+		TotalBytes: 100, UsedBytes: 100, ExpiryTime: DefaultExpiryTime,
+	}}}
+
+	items, err := NewService(repository).List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Enabled || !items[0].TrafficBlocked {
+		t.Fatalf("expected inactive subscription node to be blocked, got %+v", items)
+	}
+}
+
+func TestAnyInactiveSubscriptionBlocksSharedNode(t *testing.T) {
+	repository := &testRepository{items: []Inbound{{
+		ID: 1, Tag: "inbound-1", Enabled: true, ExpiryTime: DefaultExpiryTime,
+	}}, subscriptions: []SubscriptionBinding{
+		{ID: 1, Name: "active", Enabled: true, InboundIDs: []int64{1}, ExpiryTime: DefaultExpiryTime},
+		{ID: 2, Name: "expired", Enabled: true, InboundIDs: []int64{1}, ExpiryTime: "2020-01-01T00:00:00Z"},
+	}}
+
+	items, err := NewService(repository).List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if items[0].Enabled || !items[0].TrafficBlocked {
+		t.Fatalf("expected any inactive subscription to block shared node, got %+v", items[0])
+	}
+}
+
 func TestValidate(t *testing.T) {
 	valid := CreateInput{Remark: "demo", Listen: "0.0.0.0", Port: 10443, Protocol: ProtocolVLESS, Network: NetworkTCP, Security: SecurityNone, ClientID: "11111111-1111-4111-8111-111111111111", Email: "demo@example.com", Enabled: true}
 	if err := Validate(valid); err != nil {

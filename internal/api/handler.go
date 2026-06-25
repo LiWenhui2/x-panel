@@ -205,6 +205,11 @@ func (h *Handler) deleteSubscription(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) publicSubscription(w http.ResponseWriter, r *http.Request) {
 	item, nodes, err := h.subscriptions.Resolve(r.Context(), chi.URLParam(r, "token"))
 	if err != nil {
+		if errors.Is(err, subscription.ErrInactive) {
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusGone)
+			return
+		}
 		if errors.Is(err, subscription.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "subscription_not_found", "subscription not found")
 			return

@@ -18,6 +18,7 @@ import (
 var (
 	ErrInvalidInput = errors.New("invalid subscription input")
 	ErrNotFound     = errors.New("subscription not found")
+	ErrInactive     = errors.New("subscription inactive")
 )
 
 type InboundSource interface {
@@ -96,8 +97,11 @@ func (s *Service) Resolve(ctx context.Context, token string) (Subscription, []in
 		return Subscription{}, nil, ErrNotFound
 	}
 	item, err := s.repository.FindSubscriptionByTokenHash(ctx, hashToken(token))
-	if err != nil || !subscriptionActive(item, time.Now().UTC()) {
+	if err != nil {
 		return Subscription{}, nil, ErrNotFound
+	}
+	if !subscriptionActive(item, time.Now().UTC()) {
+		return Subscription{}, nil, ErrInactive
 	}
 	normalizeUsage(&item)
 	all, err := s.inbounds.List(ctx)

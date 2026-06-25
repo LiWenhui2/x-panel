@@ -28,8 +28,9 @@ func (c *Compiler) Compile(items []inbound.Inbound) (Result, error) {
 		"tag": "api", "listen": "127.0.0.1", "port": c.APIPort, "protocol": "dokodemo-door",
 		"settings": map[string]any{"address": "127.0.0.1"},
 	}}
+	blockedInboundTags := []string{}
 	for _, item := range sorted {
-		if !item.Enabled {
+		if !item.Enabled && !item.TrafficBlocked {
 			continue
 		}
 		if ports[item.Port] {
@@ -64,6 +65,15 @@ func (c *Compiler) Compile(items []inbound.Inbound) (Result, error) {
 			compiled["sniffing"] = map[string]any{"enabled": true, "destOverride": []string{"http", "tls", "quic"}}
 		}
 		inbounds = append(inbounds, compiled)
+		if item.TrafficBlocked {
+			blockedInboundTags = append(blockedInboundTags, item.Tag)
+		}
+	}
+	rules := []any{map[string]any{"type": "field", "inboundTag": []string{"api"}, "outboundTag": "api"}}
+	if len(blockedInboundTags) > 0 {
+		rules = append(rules, map[string]any{
+			"type": "field", "inboundTag": blockedInboundTags, "outboundTag": "blocked",
+		})
 	}
 	config := map[string]any{
 		"log":   map[string]any{"loglevel": "warning"},
@@ -75,7 +85,7 @@ func (c *Compiler) Compile(items []inbound.Inbound) (Result, error) {
 		},
 		"inbounds":  inbounds,
 		"outbounds": []any{map[string]any{"tag": "direct", "protocol": "freedom"}, map[string]any{"tag": "blocked", "protocol": "blackhole"}},
-		"routing":   map[string]any{"rules": []any{map[string]any{"type": "field", "inboundTag": []string{"api"}, "outboundTag": "api"}}},
+		"routing":   map[string]any{"rules": rules},
 	}
 	content, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
