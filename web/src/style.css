@@ -482,15 +482,26 @@ td em { margin-left: 5px; color: #92400e; background: #fef3c7; font-style: norma
 .subscription-grid { display: grid; grid-template-columns: 1fr; gap: 12px; padding: 14px; }
 .subscription-card {
   display: grid;
-  grid-template-columns: minmax(230px, .72fr) minmax(360px, 1.28fr);
-  align-items: stretch;
-  gap: 12px 18px;
+  gap: 14px;
   min-width: 0;
-  padding: 16px;
+  width: 100%;
+  padding: 16px 18px;
   border: 1px solid #e4ebf4;
   border-radius: 8px;
   background: linear-gradient(180deg, #fff, #fbfdff);
   box-shadow: 0 14px 34px rgba(15, 23, 42, .05);
+}
+.subscription-card-top {
+  display: grid;
+  grid-template-columns: minmax(240px, .72fr) minmax(280px, 1fr);
+  gap: 16px;
+  min-width: 0;
+}
+.subscription-identity {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
 }
 .subscription-card header { display: flex; justify-content: space-between; gap: 12px; min-width: 0; }
 .subscription-card header div { display: flex; align-items: center; gap: 9px; }
@@ -512,16 +523,24 @@ td em { margin-left: 5px; color: #92400e; background: #fef3c7; font-style: norma
   font-weight: 900;
 }
 .token-row { display: flex; align-items: center; gap: 8px; min-width: 0; color: #526174; }
-.token-row svg { width: 18px; color: #2563eb; }
+.token-row svg { flex: 0 0 auto; width: 18px; color: #2563eb; }
 .token-row code, .fresh-url {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: #334155;
   font-size: 12px;
 }
-.subscription-usage { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.subscription-usage {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-self: start;
+  gap: 10px;
+  min-width: 0;
+}
 .subscription-usage div {
+  min-width: 0;
   padding: 10px;
   border: 1px solid #e4ebf4;
   border-radius: 8px;
@@ -542,8 +561,12 @@ td em { margin-left: 5px; color: #92400e; background: #fef3c7; font-style: norma
   color: #172033;
   font-size: 12px;
 }
-.subscription-nodes { display: flex; flex-wrap: wrap; gap: 8px; }
+.subscription-nodes { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .subscription-nodes span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding: 5px 9px;
   border-radius: 999px;
   color: #047857;
@@ -552,16 +575,27 @@ td em { margin-left: 5px; color: #92400e; background: #fef3c7; font-style: norma
   font-weight: 800;
 }
 .url-hint { margin: 0; color: #7a8798; font-size: 13px; }
-.subscription-card > header { align-self: start; }
-.subscription-card .token-row, .subscription-card .subscription-nodes { grid-column: 1; }
-.subscription-card .subscription-usage { grid-column: 2; grid-row: 1 / span 2; align-self: start; }
-.subscription-card .client-export-row { grid-column: 1 / -1; }
-.subscription-card > footer { grid-column: 1 / -1; }
 .subscription-card .fresh-url, .subscription-card .url-hint { display: none; }
-.subscription-card footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin: 0; padding: 0; border: 0; }
+.subscription-card-bottom {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.subscription-card footer {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
 .client-export-row {
   display: grid;
-  grid-template-columns: repeat(4, minmax(118px, 1fr));
+  flex: 1 1 auto;
+  grid-template-columns: repeat(4, minmax(108px, 1fr));
   gap: 8px;
   min-width: 0;
 }
@@ -635,9 +669,10 @@ td em { margin-left: 5px; color: #92400e; background: #fef3c7; font-style: norma
 
 @media (max-width: 1180px) {
   .gauge-grid { grid-template-columns: repeat(2, 1fr); }
-  .subscription-card { grid-template-columns: minmax(190px, .8fr) minmax(320px, 1.2fr); }
-  .subscription-card .subscription-usage { grid-column: 2; }
-  .subscription-card .client-export-row, .subscription-card > footer { grid-column: 1 / -1; grid-row: auto; }
+  .subscription-card-top { grid-template-columns: 1fr; }
+  .subscription-usage { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+  .subscription-card-bottom { flex-wrap: wrap; align-items: stretch; }
+  .subscription-card footer { width: 100%; }
 }
 @media (max-width: 940px) {
   .sidebar { width: 78px; }
@@ -663,10 +698,10 @@ td em { margin-left: 5px; color: #92400e; background: #fef3c7; font-style: norma
   .toolbar-actions { margin-top: 14px; }
   .form-grid, .share-info, .share-layout { grid-template-columns: 1fr; }
   .subscription-usage { grid-template-columns: 1fr; }
-  .subscription-card { grid-template-columns: 1fr; }
-  .subscription-card .subscription-usage, .subscription-card .client-export-row, .subscription-card > footer,
-  .subscription-card .token-row, .subscription-card .subscription-nodes { grid-column: 1; grid-row: auto; }
+  .subscription-card { padding: 14px; }
+  .subscription-card-bottom { display: grid; }
   .client-export-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .subscription-card footer { justify-content: flex-start; width: auto; }
   .settings-grid, .settings-panel form, .settings-inline-form { grid-template-columns: 1fr !important; }
   .settings-panel { border-right: 0; border-bottom: 1px solid #e7edf5; }
   .form-grid label.wide { grid-column: auto; }

@@ -708,39 +708,45 @@ onBeforeUnmount(() => {
           </div>
           <div v-if="subscriptions.length" class="subscription-grid">
             <article v-for="item in subscriptions" :key="item.id" class="subscription-card">
-              <header>
-                <div><span :class="['state-dot', { off: !item.enabled }]"></span><strong>{{ item.name }}</strong></div>
-                <small>{{ item.inboundIds.length }} {{ t('nodes') }}</small>
-              </header>
-              <div class="token-row"><IconKey /><code>••••••••{{ item.tokenHint }}</code></div>
-              <div class="subscription-usage">
-                <div><span>{{ t('subscriptionUsage') }}</span><strong>{{ formatBytesExact(item.usedBytes) }} / {{ item.totalBytes ? formatBytes(item.totalBytes) : t('unlimited') }}</strong></div>
-                <div><span>{{ t('remainingTraffic') }}</span><strong>{{ item.totalBytes ? formatBytesExact(item.remainingBytes) : t('unlimited') }}</strong></div>
-                <div><span>{{ t('expiry') }}</span><strong>{{ formatExpiry(item.expiryTime) }}</strong></div>
-              </div>
-              <div class="subscription-nodes">
-                <span v-for="id in item.inboundIds" :key="id">{{ items.find(node => node.id === id)?.remark || `#${id}` }}</span>
+              <div class="subscription-card-top">
+                <div class="subscription-identity">
+                  <header>
+                    <div><span :class="['state-dot', { off: !item.enabled }]"></span><strong>{{ item.name }}</strong></div>
+                    <small>{{ item.inboundIds.length }} {{ t('nodes') }}</small>
+                  </header>
+                  <div class="token-row"><IconKey /><code>••••••••{{ item.tokenHint }}</code></div>
+                  <div class="subscription-nodes">
+                    <span v-for="id in item.inboundIds" :key="id">{{ items.find(node => node.id === id)?.remark || `#${id}` }}</span>
+                  </div>
+                </div>
+                <div class="subscription-usage">
+                  <div><span>{{ t('subscriptionUsage') }}</span><strong>{{ formatBytesExact(item.usedBytes) }} / {{ item.totalBytes ? formatBytes(item.totalBytes) : t('unlimited') }}</strong></div>
+                  <div><span>{{ t('remainingTraffic') }}</span><strong>{{ item.totalBytes ? formatBytesExact(item.remainingBytes) : t('unlimited') }}</strong></div>
+                  <div><span>{{ t('expiry') }}</span><strong>{{ formatExpiry(item.expiryTime) }}</strong></div>
+                </div>
               </div>
               <p v-if="subscriptionURLs[item.id]" class="fresh-url">{{ subscriptionURLs[item.id] }}</p>
               <p v-else class="url-hint">{{ t('tokenHidden') }}</p>
-              <div class="client-export-row" :aria-label="t('exportClients')">
-                <button
-                  v-for="client in exportClients"
-                  :key="client.id"
-                  class="client-export-button"
-                  :class="{ nexora: client.id === 'nexora' }"
-                  :disabled="loading"
-                  @click="exportSubscription(item, client.id)"
-                >
-                  <img :src="clientIcon(client.id)" alt="" />
-                  <span>{{ client.name }}</span>
-                </button>
+              <div class="subscription-card-bottom">
+                <div class="client-export-row" :aria-label="t('exportClients')">
+                  <button
+                    v-for="client in exportClients"
+                    :key="client.id"
+                    class="client-export-button"
+                    :class="{ nexora: client.id === 'nexora' }"
+                    :disabled="loading"
+                    @click="exportSubscription(item, client.id)"
+                  >
+                    <img :src="clientIcon(client.id)" alt="" />
+                    <span>{{ client.name }}</span>
+                  </button>
+                </div>
+                <footer>
+                  <button class="icon-button" :title="t('rotate')" @click="rotateSubscription(item)"><IconRefresh /></button>
+                  <button class="icon-button" :title="t('edit')" @click="openSubscription(item)"><IconEdit /></button>
+                  <button class="danger-button" @click="removeSubscription(item)"><IconTrash /></button>
+                </footer>
               </div>
-              <footer>
-                <button class="icon-button" :title="t('rotate')" @click="rotateSubscription(item)"><IconRefresh /></button>
-                <button class="icon-button" :title="t('edit')" @click="openSubscription(item)"><IconEdit /></button>
-                <button class="danger-button" @click="removeSubscription(item)"><IconTrash /></button>
-              </footer>
             </article>
           </div>
           <div v-else class="empty-state subscription-empty"><IconLink /><strong>{{ t('noSubscriptions') }}</strong><span>{{ t('noSubscriptionsHelp') }}</span></div>
