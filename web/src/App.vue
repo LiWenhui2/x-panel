@@ -308,6 +308,17 @@ async function rotateSubscription(item: Subscription) {
   finally { loading.value = false }
 }
 
+async function renewSubscription(item: Subscription, days: number) {
+  loading.value = true
+  error.value = ''
+  try {
+    await api.renewSubscription(item.id, days)
+    notify(t('subscriptionRenewed', { days: String(days) }))
+    await Promise.all([refreshSubscriptions(), refresh()])
+  } catch (cause) { fail(errorText(cause)) }
+  finally { loading.value = false }
+}
+
 async function ensureSubscriptionURL(item: Subscription) {
   const value = subscriptionURLs[item.id]
   if (value) return value
@@ -689,6 +700,11 @@ onBeforeUnmount(() => {
                 </button>
               </div>
               <footer>
+                <div class="renew-actions">
+                  <button class="renew-button" :disabled="loading" @click="renewSubscription(item, 30)">+30 {{ t('days') }}</button>
+                  <button class="renew-button" :disabled="loading" @click="renewSubscription(item, 90)">+90 {{ t('days') }}</button>
+                  <button class="renew-button" :disabled="loading" @click="renewSubscription(item, 365)">+1 {{ t('year') }}</button>
+                </div>
                 <button class="ghost" @click="rotateSubscription(item)"><IconRefresh />{{ t('rotate') }}</button>
                 <button class="ghost" @click="openSubscription(item)"><IconEdit />{{ t('edit') }}</button>
                 <button class="danger-button" @click="removeSubscription(item)"><IconTrash /></button>

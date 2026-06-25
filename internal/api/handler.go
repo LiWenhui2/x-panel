@@ -89,6 +89,7 @@ func (h *Handler) Routes() http.Handler {
 			protected.Get("/api/v1/subscriptions", h.listSubscriptions)
 			protected.Post("/api/v1/subscriptions", h.createSubscription)
 			protected.Put("/api/v1/subscriptions/{id}", h.updateSubscription)
+			protected.Post("/api/v1/subscriptions/{id}/renew", h.renewSubscription)
 			protected.Post("/api/v1/subscriptions/{id}/rotate", h.rotateSubscription)
 			protected.Delete("/api/v1/subscriptions/{id}", h.deleteSubscription)
 		}
@@ -168,6 +169,27 @@ func (h *Handler) updateSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := h.applyCurrentConfig(r.Context()); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, "auto_apply_failed", "subscription updated, but Xray apply failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) renewSubscription(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var input subscription.RenewInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	item, err := h.subscriptions.Renew(r.Context(), id, input)
+	if err != nil {
+		h.writeSubscriptionError(w, r, err)
+		return
+	}
+	if _, err := h.applyCurrentConfig(r.Context()); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "auto_apply_failed", "subscription renewed, but Xray apply failed: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, item)

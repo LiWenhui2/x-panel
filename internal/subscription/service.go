@@ -75,6 +75,42 @@ func (s *Service) Update(ctx context.Context, id int64, input Input) (Subscripti
 	return updated, nil
 }
 
+func (s *Service) Renew(ctx context.Context, id int64, input RenewInput) (Subscription, error) {
+	if id <= 0 {
+		return Subscription{}, ErrNotFound
+	}
+	if input.Days < 1 || input.Days > 3650 {
+		return Subscription{}, fmt.Errorf("%w: renewal days must be between 1 and 3650", ErrInvalidInput)
+	}
+	items, err := s.repository.ListSubscriptions(ctx)
+	if err != nil {
+		return Subscription{}, err
+	}
+	var current *Subscription
+	for index := range items {
+		if items[index].ID == id {
+			current = &items[index]
+			break
+		}
+	}
+	if current == nil {
+		return Subscription{}, ErrNotFound
+	}
+	base := time.Now().UTC()
+	if expiry, parseErr := time.Parse(time.RFC3339, current.ExpiryTime); parseErr == nil && expiry.After(base) {
+		base = expiry
+	}
+	updated, err := s.repository.UpdateSubscription(ctx, id, Input{
+		Name: current.Name, Enabled: true, InboundIDs: current.InboundIDs,
+		TotalBytes: current.TotalBytes, ExpiryTime: base.AddDate(0, 0, input.Days).Format(time.RFC3339),
+	})
+	if err != nil {
+		return Subscription{}, mapNotFound(err)
+	}
+	normalizeUsage(&updated)
+	return updated, nil
+}
+
 func (s *Service) Rotate(ctx context.Context, id int64) (Subscription, string, error) {
 	token, tokenHash, hint, err := newToken()
 	if err != nil {

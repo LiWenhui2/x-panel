@@ -29,4 +29,18 @@ describe('api client', () => {
     await expect(api.deleteSubscription(7)).resolves.toBeUndefined()
     expect(fetch).toHaveBeenCalledWith('/api/v1/subscriptions/7', expect.objectContaining({ method: 'DELETE' }))
   })
+
+  it('renews a subscription by day count', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 7 }),
+    }))
+
+    await api.renewSubscription(7, 30)
+
+    expect(fetch).toHaveBeenCalledWith('/api/v1/subscriptions/7/renew', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ days: 30 }),
+    }))
+  })
 })

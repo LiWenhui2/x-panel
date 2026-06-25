@@ -23,3 +23,7 @@ type Input struct {
 	TotalBytes int64   `json:"totalBytes"`
 	ExpiryTime string  `json:"expiryTime"`
 }
+
+type RenewInput struct {
+	Days int `json:"days"`
+}
