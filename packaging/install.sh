@@ -221,10 +221,11 @@ EOF
 post_check() {
   local server_ip
   log "Checking panel health"
-  curl -fsS "http://127.0.0.1:${PANEL_PORT}/api/v1/health" >/dev/null || die "Panel health check failed."
-  server_ip=$(detect_server_ip)
-  log "Installation completed"
-  cat <<EOF
+  for attempt in $(seq 1 30); do
+    if curl -fsS "http://127.0.0.1:${PANEL_PORT}/api/v1/health" >/dev/null 2>&1; then
+      server_ip=$(detect_server_ip)
+      log "Installation completed"
+      cat <<EOF
 
 Panel listener:
   0.0.0.0:${PANEL_PORT}
@@ -235,6 +236,19 @@ Open in your browser:
 Control menu:
   x-panel
 EOF
+      return
+    fi
+    if ! systemctl is-active --quiet xpanel.service; then
+      systemctl --no-pager --full status xpanel.service || true
+      journalctl -u xpanel.service -n 80 --no-pager || true
+      die "Panel service failed to start."
+    fi
+    sleep 1
+  done
+  systemctl --no-pager --full status xpanel.service || true
+  journalctl -u xpanel.service -n 80 --no-pager || true
+  ss -lntp || true
+  die "Panel health check failed after waiting 30 seconds."
 }
 
 main() {
