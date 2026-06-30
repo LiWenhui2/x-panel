@@ -30,6 +30,7 @@ type inboundService interface {
 	List(context.Context) ([]inbound.Inbound, error)
 	Create(context.Context, inbound.CreateInput) (inbound.Inbound, error)
 	Update(context.Context, int64, inbound.CreateInput) (inbound.Inbound, error)
+	Delete(context.Context, int64) error
 }
 
 type configApplier interface {
@@ -78,6 +79,7 @@ func (h *Handler) Routes() http.Handler {
 		protected.Get("/api/v1/inbounds", h.listInbounds)
 		protected.Post("/api/v1/inbounds", h.createInbound)
 		protected.Put("/api/v1/inbounds/{id}", h.updateInbound)
+		protected.Delete("/api/v1/inbounds/{id}", h.deleteInbound)
 		protected.Post("/api/v1/config/preview", h.previewConfig)
 		protected.Post("/api/v1/config/apply", h.applyConfig)
 		protected.Get("/api/v1/system/status", h.systemStatus)
@@ -125,6 +127,26 @@ func (h *Handler) updateInbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) deleteInbound(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := h.service.Delete(r.Context(), id); err != nil {
+		if errors.Is(err, inbound.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "inbound_not_found", "inbound not found")
+			return
+		}
+		h.internalError(w, r, err)
+		return
+	}
+	if _, err := h.applyCurrentConfig(r.Context()); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "auto_apply_failed", "inbound deleted, but Xray apply failed: "+err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) listSubscriptions(w http.ResponseWriter, r *http.Request) {

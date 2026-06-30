@@ -6,6 +6,7 @@ type Repository interface {
 	List(context.Context) ([]Inbound, error)
 	Create(context.Context, Inbound) (Inbound, error)
 	Update(context.Context, int64, Inbound) (Inbound, error)
+	Delete(context.Context, int64) error
 	AddUsedBytes(context.Context, int64, int64) error
 }
 

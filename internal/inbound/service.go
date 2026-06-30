@@ -143,6 +143,13 @@ func (s *Service) Update(ctx context.Context, id int64, input CreateInput) (Inbo
 	return updated, nil
 }
 
+func (s *Service) Delete(ctx context.Context, id int64) error {
+	if id <= 0 {
+		return fmt.Errorf("%w: invalid inbound ID", ErrNotFound)
+	}
+	return s.repository.Delete(ctx, id)
+}
+
 func (s *Service) subscriptionBindings(ctx context.Context) ([]SubscriptionBinding, error) {
 	usageRepo, ok := s.repository.(SubscriptionUsageRepository)
 	if !ok {
@@ -278,3 +285,4 @@ func Validate(input CreateInput) error {
 
 var ErrInvalidInput = errors.New("invalid input")
 var ErrConflict = errors.New("inbound conflicts with an existing record")
+var ErrNotFound = errors.New("inbound not found")

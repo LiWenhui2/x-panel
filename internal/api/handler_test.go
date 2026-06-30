@@ -41,6 +41,15 @@ func (m *memoryService) Update(_ context.Context, id int64, input inbound.Create
 	item := inbound.Inbound{ID: id, Tag: "inbound-1", Remark: input.Remark, Listen: input.Listen, Port: input.Port, Protocol: input.Protocol, Network: input.Network, Security: input.Security, ClientID: input.ClientID, Email: input.Email, Enabled: input.Enabled, CreatedAt: time.Now()}
 	return item, nil
 }
+func (m *memoryService) Delete(_ context.Context, id int64) error {
+	for index := range m.items {
+		if m.items[index].ID == id {
+			m.items = append(m.items[:index], m.items[index+1:]...)
+			return nil
+		}
+	}
+	return inbound.ErrNotFound
+}
 
 func (m *memoryApplier) Apply(_ context.Context, content []byte, sha256 string) (runtime.ApplyResult, error) {
 	m.called = true
@@ -150,6 +159,25 @@ func TestDemoFlow(t *testing.T) {
 	}
 	if !applier.called {
 		t.Fatal("expected applier to be called")
+	}
+	applier.called = false
+	request, err = http.NewRequest(http.MethodDelete, server.URL+"/api/v1/inbounds/1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cookie := range cookies {
+		request.AddCookie(cookie)
+	}
+	response, err = client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("unexpected delete status: %d", response.StatusCode)
+	}
+	if !applier.called {
+		t.Fatal("expected inbound deletion to apply Xray configuration automatically")
 	}
 	response, err = http.Get(server.URL + "/")
 	if err != nil {

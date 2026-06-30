@@ -34,6 +34,15 @@ func (r *testRepository) Update(_ context.Context, id int64, item Inbound) (Inbo
 	}
 	return Inbound{}, ErrInvalidInput
 }
+func (r *testRepository) Delete(_ context.Context, id int64) error {
+	for index := range r.items {
+		if r.items[index].ID == id {
+			r.items = append(r.items[:index], r.items[index+1:]...)
+			return nil
+		}
+	}
+	return ErrNotFound
+}
 func (r *testRepository) AddUsedBytes(_ context.Context, id, delta int64) error {
 	for index := range r.items {
 		if r.items[index].ID == id {

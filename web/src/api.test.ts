@@ -30,6 +30,12 @@ describe('api client', () => {
     expect(fetch).toHaveBeenCalledWith('/api/v1/subscriptions/7', expect.objectContaining({ method: 'DELETE' }))
   })
 
+  it('accepts empty delete inbound responses', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 204 }))
+    await expect(api.deleteInbound(3)).resolves.toBeUndefined()
+    expect(fetch).toHaveBeenCalledWith('/api/v1/inbounds/3', expect.objectContaining({ method: 'DELETE' }))
+  })
+
   it('renews a subscription by day count', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,

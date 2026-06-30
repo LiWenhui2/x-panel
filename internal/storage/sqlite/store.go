@@ -323,6 +323,17 @@ func (s *Store) Update(ctx context.Context, id int64, item inbound.Inbound) (inb
 	return item, nil
 }
 
+func (s *Store) Delete(ctx context.Context, id int64) error {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM inbounds WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return inbound.ErrNotFound
+	}
+	return nil
+}
+
 func (s *Store) AddUsedBytes(ctx context.Context, id, delta int64) error {
 	if delta <= 0 {
 		return nil

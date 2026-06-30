@@ -414,6 +414,18 @@ async function saveInbound() {
   finally { loading.value = false }
 }
 
+async function removeInbound(item: Inbound) {
+  if (!window.confirm(t('deleteInboundConfirm', { name: item.remark || item.tag }))) return
+  loadingNodes.value = true
+  error.value = ''
+  try {
+    await api.deleteInbound(item.id)
+    notify(t('inboundDeleted', { name: item.remark || item.tag }))
+    await Promise.all([refresh(), refreshSubscriptions()])
+  } catch (cause) { fail(errorText(cause)) }
+  finally { loadingNodes.value = false }
+}
+
 async function savePanelPort() {
   loading.value = true
   try {
@@ -707,6 +719,7 @@ onBeforeUnmount(() => {
                   <td class="row-actions">
                     <button class="icon-button" :title="t('exportTitle')" @click="exportInbound(item)"><IconDownload /></button>
                     <button class="icon-button" :title="t('edit')" @click="openEdit(item)"><IconEdit /></button>
+                    <button class="danger-button" :title="t('deleteNode')" :disabled="loadingNodes" @click="removeInbound(item)"><IconTrash /></button>
                   </td>
                 </tr>
                 <tr v-if="!items.length"><td colspan="9" class="empty-state"><IconServer /><strong>{{ t('noNodes') }}</strong><span>{{ t('noNodesHelp') }}</span></td></tr>

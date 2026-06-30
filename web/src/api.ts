@@ -87,6 +87,8 @@ export const api = {
     request<Inbound>('/api/v1/inbounds', { method: 'POST', body: JSON.stringify(input) }),
   update: (id: number, input: CreateInbound) =>
     request<Inbound>(`/api/v1/inbounds/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
+  deleteInbound: (id: number) =>
+    request<void>(`/api/v1/inbounds/${id}`, { method: 'DELETE' }),
   preview: () =>
     request<{ sha256: string; config: Record<string, unknown> }>('/api/v1/config/preview', { method: 'POST' }),
   apply: () =>
