@@ -468,6 +468,7 @@ func scanSubscription(scanner rowScanner) (subscription.Subscription, error) {
 	}
 	item.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
 	item.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAt)
+	item.InboundIDs = []int64{}
 	if inboundIDs != "" {
 		for _, value := range strings.Split(inboundIDs, ",") {
 			id, err := strconv.ParseInt(value, 10, 64)

@@ -98,6 +98,43 @@ func TestSubscriptionLifecycle(t *testing.T) {
 	}
 }
 
+func TestListSubscriptionsReturnsEmptyInboundIDsAfterInboundDelete(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "subscription-empty-inbounds.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	node, err := store.Create(ctx, inbound.Inbound{
+		Remark: "temporary", Listen: "0.0.0.0", Port: 31443, Protocol: inbound.ProtocolVLESS,
+		Network: inbound.NetworkTCP, Security: inbound.SecurityNone,
+		ClientID: "44444444-4444-4444-8444-444444444444", Email: "temporary@example.com", Enabled: true,
+		ExpiryTime: inbound.DefaultExpiryTime,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.CreateSubscription(ctx, subscription.Subscription{
+		Name: "orphaned", Enabled: true, InboundIDs: []int64{node.ID}, ExpiryTime: inbound.DefaultExpiryTime,
+	}, "token-hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Delete(ctx, node.ID); err != nil {
+		t.Fatal(err)
+	}
+	subscriptions, err := store.ListSubscriptions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subscriptions) != 1 {
+		t.Fatalf("expected subscription to remain, got %#v", subscriptions)
+	}
+	if subscriptions[0].InboundIDs == nil || len(subscriptions[0].InboundIDs) != 0 {
+		t.Fatalf("expected empty inbound IDs slice, got %#v", subscriptions[0].InboundIDs)
+	}
+}
+
 func TestReplacingAdministratorRevokesSessionsAndOldCredentials(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "auth.db"))
 	if err != nil {

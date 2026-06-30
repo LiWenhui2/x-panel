@@ -753,11 +753,11 @@ onBeforeUnmount(() => {
                 <div class="subscription-identity">
                   <header>
                     <div><span :class="['state-dot', { off: !item.enabled }]"></span><strong>{{ item.name }}</strong></div>
-                    <small>{{ item.inboundIds.length }} {{ t('nodes') }}</small>
+                    <small>{{ (item.inboundIds || []).length }} {{ t('nodes') }}</small>
                   </header>
                   <div class="token-row"><IconKey /><code>••••••••{{ item.tokenHint }}</code></div>
                   <div class="subscription-nodes">
-                    <span v-for="id in item.inboundIds" :key="id">{{ items.find(node => node.id === id)?.remark || `#${id}` }}</span>
+                    <span v-for="id in (item.inboundIds || [])" :key="id">{{ items.find(node => node.id === id)?.remark || `#${id}` }}</span>
                   </div>
                 </div>
                 <div class="subscription-usage">
