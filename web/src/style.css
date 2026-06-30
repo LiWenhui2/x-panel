@@ -465,6 +465,21 @@ td em { margin-left: 5px; color: #92400e; background: #fef3c7; font-style: norma
 .switch.on { color: #2563eb; }
 .switch.on i { background: #2563eb; }
 .switch.on i:after { left: 23px; }
+.switch:disabled { cursor: not-allowed; opacity: .62; }
+.form-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  color: #1e3a8a;
+  background: #eff6ff;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.form-note.wide { grid-column: 1 / -1; }
+.form-note svg { width: 17px; height: 17px; flex: 0 0 auto; margin-top: 1px; }
 .modal footer {
   position: sticky;
   bottom: 0;

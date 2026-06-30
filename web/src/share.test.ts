@@ -8,7 +8,7 @@ const inbound: Inbound = {
   clientId: '11111111-1111-4111-8111-111111111111', email: 'demo@example.com', enabled: true,
   totalBytes: 1000, usedBytes: 250, remainingBytes: 750, expiryTime: '2099-12-31T23:59:59Z',
   alterId: 0, sniffing: true, wsPath: '/xpanel', tlsCertFile: '', tlsKeyFile: '', createdAt: '2026-01-01T00:00:00Z',
-  subscriptionControlled: false, subscriptionNames: [],
+  subscriptionControlled: false, subscriptionNames: [], subscriptionBlockReason: '',
 }
 
 describe('share links', () => {

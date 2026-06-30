@@ -113,7 +113,7 @@ func TestInactiveSubscriptionBlocksBoundNodeTraffic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 || items[0].Enabled || !items[0].TrafficBlocked {
+	if len(items) != 1 || items[0].Enabled || !items[0].TrafficBlocked || items[0].SubscriptionBlockReason != "traffic_exhausted" {
 		t.Fatalf("expected inactive subscription node to be blocked, got %+v", items)
 	}
 }
@@ -129,7 +129,7 @@ func TestActiveSubscriptionControlsDisabledNode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 || !items[0].Enabled || !items[0].SubscriptionControlled || items[0].TrafficBlocked {
+	if len(items) != 1 || !items[0].Enabled || !items[0].SubscriptionControlled || items[0].TrafficBlocked || items[0].SubscriptionBlockReason != "" {
 		t.Fatalf("expected active subscription to control and enable node, got %+v", items)
 	}
 }
@@ -146,7 +146,7 @@ func TestAnyInactiveSubscriptionBlocksSharedNode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if items[0].Enabled || !items[0].TrafficBlocked {
+	if items[0].Enabled || !items[0].TrafficBlocked || items[0].SubscriptionBlockReason != "expired" {
 		t.Fatalf("expected any inactive subscription to block shared node, got %+v", items[0])
 	}
 }

@@ -166,18 +166,23 @@ func normalizeUsage(item *Inbound, bindings []SubscriptionBinding) {
 	now := time.Now().UTC()
 	if len(bindings) > 0 {
 		controlled, active := false, true
+		blockReason := ""
 		for _, binding := range bindings {
 			if !containsID(binding.InboundIDs, item.ID) {
 				continue
 			}
 			controlled = true
 			item.SubscriptionNames = append(item.SubscriptionNames, binding.Name)
-			if !subscriptionActive(binding, now) {
+			if reason := subscriptionInactiveReason(binding, now); reason != "" {
 				active = false
+				if blockReason == "" {
+					blockReason = reason
+				}
 			}
 		}
 		if controlled {
 			item.SubscriptionControlled = true
+			item.SubscriptionBlockReason = blockReason
 			item.TotalBytes = 0
 			item.RemainingBytes = 0
 			item.ExpiryTime = ""
@@ -221,17 +226,17 @@ func containsID(ids []int64, id int64) bool {
 	return false
 }
 
-func subscriptionActive(binding SubscriptionBinding, now time.Time) bool {
+func subscriptionInactiveReason(binding SubscriptionBinding, now time.Time) string {
 	if !binding.Enabled {
-		return false
+		return "subscription_disabled"
 	}
 	if binding.TotalBytes > 0 && binding.UsedBytes >= binding.TotalBytes {
-		return false
+		return "traffic_exhausted"
 	}
 	if expiry, err := time.Parse(time.RFC3339, binding.ExpiryTime); err == nil && !now.Before(expiry) {
-		return false
+		return "expired"
 	}
-	return true
+	return ""
 }
 
 func Validate(input CreateInput) error {

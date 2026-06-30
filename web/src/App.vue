@@ -73,11 +73,19 @@ let toastTimer: number | undefined
 
 const totalQuota = computed(() => items.value.reduce((sum, item) => sum + item.totalBytes, 0))
 const enabledCount = computed(() => items.value.filter(item => item.enabled).length)
+const editingInbound = computed(() => items.value.find(item => item.id === editingInboundId.value) || null)
 
 function t(key: MessageKey, values: Record<string, string> = {}) {
   let text: string = messages[language.value][key]
   for (const [name, value] of Object.entries(values)) text = text.replace(`{${name}}`, value)
   return text
+}
+
+function subscriptionBlockText(reason: string) {
+  if (reason === 'subscription_disabled') return t('subscriptionDisabledReason')
+  if (reason === 'traffic_exhausted') return t('subscriptionTrafficExhaustedReason')
+  if (reason === 'expired') return t('subscriptionExpiredReason')
+  return t('subscriptionActiveReason')
 }
 
 function setLanguage(value: Language) {
@@ -709,6 +717,7 @@ onBeforeUnmount(() => {
                     <template v-if="item.subscriptionControlled">
                       <span class="managed-pill">{{ t('subscriptionControlled') }}</span>
                       <small>{{ item.subscriptionNames.join(', ') }}</small>
+                      <small v-if="!item.enabled">{{ subscriptionBlockText(item.subscriptionBlockReason) }}</small>
                     </template>
                     <template v-else>{{ formatBytes(item.totalBytes) }}</template>
                   </td>
@@ -810,7 +819,19 @@ onBeforeUnmount(() => {
         <form @submit.prevent="saveInbound">
           <div class="form-grid">
             <label class="wide"><span>{{ t('remark') }}</span><input v-model.trim="form.remark" placeholder="VPS VLESS TCP" required autofocus /></label>
-            <label><span>{{ t('enabled') }}</span><button type="button" :class="['switch', { on: form.enabled }]" @click="form.enabled=!form.enabled"><i></i>{{ form.enabled ? t('enabled') : t('disabled') }}</button></label>
+            <label>
+              <span>{{ t('enabled') }}</span>
+              <button
+                type="button"
+                :class="['switch', { on: form.enabled }]"
+                :disabled="!!editingInbound?.subscriptionControlled"
+                @click="form.enabled=!form.enabled"
+              ><i></i>{{ form.enabled ? t('enabled') : t('disabled') }}</button>
+            </label>
+            <div v-if="editingInbound?.subscriptionControlled" class="form-note wide">
+              <IconAlertCircle />
+              <span>{{ t('subscriptionManagedSwitchHint', { reason: subscriptionBlockText(editingInbound.subscriptionBlockReason) }) }}</span>
+            </div>
             <label><span>{{ t('protocol') }}</span><select v-model="form.protocol"><option value="vless">VLESS</option><option value="vmess">VMess</option></select></label>
             <label><span>{{ t('listenIp') }}</span><input v-model="form.listen" required /></label>
             <label><span>{{ t('port') }}</span><div class="input-action"><input v-model.number="form.port" type="number" min="1" max="65535" required /><button type="button" @click="form.port=randomPort()">{{ t('random') }}</button></div></label>

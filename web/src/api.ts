@@ -21,10 +21,11 @@ export type Inbound = {
   tlsKeyFile: string
   subscriptionControlled: boolean
   subscriptionNames: string[]
+  subscriptionBlockReason: string
   createdAt: string
 }
 
-export type CreateInbound = Omit<Inbound, 'id' | 'tag' | 'createdAt' | 'usedBytes' | 'remainingBytes' | 'subscriptionControlled' | 'subscriptionNames'>
+export type CreateInbound = Omit<Inbound, 'id' | 'tag' | 'createdAt' | 'usedBytes' | 'remainingBytes' | 'subscriptionControlled' | 'subscriptionNames' | 'subscriptionBlockReason'>
 export type Credentials = { username: string; password: string }
 export type AuthStatus = { needsSetup: boolean; authenticated: boolean; username: string }
 export type Gauge = { used: number; total: number }
