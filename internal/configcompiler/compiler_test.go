@@ -86,3 +86,19 @@ func TestCompileRoutesBlockedInboundToBlackhole(t *testing.T) {
 		t.Fatalf("expected blocked routing rule, got %+v", decoded.Routing.Rules)
 	}
 }
+
+func TestCompileAllowsNoBusinessInbounds(t *testing.T) {
+	result, err := New().Compile(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Inbounds []map[string]any `json:"inbounds"`
+	}
+	if err := json.Unmarshal(result.Content, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Inbounds) != 1 || decoded.Inbounds[0]["tag"] != "api" {
+		t.Fatalf("expected only API inbound when no business inbounds exist, got %+v", decoded.Inbounds)
+	}
+}

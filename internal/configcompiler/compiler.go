@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sort"
 
@@ -90,9 +89,6 @@ func (c *Compiler) Compile(items []inbound.Inbound) (Result, error) {
 	content, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return Result{}, err
-	}
-	if len(inbounds) == 1 {
-		return Result{}, errors.New("no enabled business inbound")
 	}
 	content = append(content, '\n')
 	digest := sha256.Sum256(content)

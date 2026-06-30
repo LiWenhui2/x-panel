@@ -410,14 +410,27 @@ func (s *Store) RotateSubscriptionToken(ctx context.Context, id int64, tokenHash
 }
 
 func (s *Store) DeleteSubscription(ctx context.Context, id int64) error {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM subscriptions WHERE id = ?`, id)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE inbounds SET enabled = 0 WHERE id IN (
+SELECT inbound_id FROM subscription_inbounds WHERE subscription_id = ?
+) AND id NOT IN (
+SELECT inbound_id FROM subscription_inbounds WHERE subscription_id <> ?
+)`, id, id)
+	if err != nil {
+		return err
+	}
+	result, err = tx.ExecContext(ctx, `DELETE FROM subscriptions WHERE id = ?`, id)
 	if err != nil {
 		return err
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
 		return subscription.ErrNotFound
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (s *Store) FindSubscriptionByTokenHash(ctx context.Context, tokenHash string) (subscription.Subscription, error) {

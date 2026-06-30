@@ -89,6 +89,13 @@ func TestSubscriptionLifecycle(t *testing.T) {
 	if err := service.Delete(ctx, created.ID); err != nil {
 		t.Fatal(err)
 	}
+	items, err := inboundService.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Enabled {
+		t.Fatalf("expected deleting an exclusive subscription to disable its node, got %#v", items)
+	}
 }
 
 func TestReplacingAdministratorRevokesSessionsAndOldCredentials(t *testing.T) {
