@@ -181,7 +181,7 @@ func normalizeUsage(item *Inbound, bindings []SubscriptionBinding) {
 			item.TotalBytes = 0
 			item.RemainingBytes = 0
 			item.ExpiryTime = ""
-			item.Enabled = item.Enabled && active
+			item.Enabled = active
 			item.TrafficBlocked = configuredEnabled && !active
 			return
 		}

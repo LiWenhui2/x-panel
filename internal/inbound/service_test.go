@@ -118,6 +118,22 @@ func TestInactiveSubscriptionBlocksBoundNodeTraffic(t *testing.T) {
 	}
 }
 
+func TestActiveSubscriptionControlsDisabledNode(t *testing.T) {
+	repository := &testRepository{items: []Inbound{{
+		ID: 1, Tag: "inbound-1", Remark: "sub node", Enabled: false, ExpiryTime: DefaultExpiryTime,
+	}}, subscriptions: []SubscriptionBinding{{
+		ID: 9, Name: "active", Enabled: true, InboundIDs: []int64{1}, ExpiryTime: DefaultExpiryTime,
+	}}}
+
+	items, err := NewService(repository).List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || !items[0].Enabled || !items[0].SubscriptionControlled || items[0].TrafficBlocked {
+		t.Fatalf("expected active subscription to control and enable node, got %+v", items)
+	}
+}
+
 func TestAnyInactiveSubscriptionBlocksSharedNode(t *testing.T) {
 	repository := &testRepository{items: []Inbound{{
 		ID: 1, Tag: "inbound-1", Enabled: true, ExpiryTime: DefaultExpiryTime,
