@@ -7,7 +7,7 @@ describe('api client', () => {
   it('returns inbound collection', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ items: [] }),
+      text: async () => JSON.stringify({ items: [] }),
     }))
 
     await expect(api.list()).resolves.toEqual({ items: [] })
@@ -18,20 +18,20 @@ describe('api client', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: false,
       status: 422,
-      json: async () => ({ message: 'validation failed' }),
+      text: async () => JSON.stringify({ message: 'validation failed' }),
     }))
 
     await expect(api.preview()).rejects.toThrow('validation failed')
   })
 
   it('accepts empty delete subscription responses', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 204 }))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 204, text: async () => '' }))
     await expect(api.deleteSubscription(7)).resolves.toBeUndefined()
     expect(fetch).toHaveBeenCalledWith('/api/v1/subscriptions/7', expect.objectContaining({ method: 'DELETE' }))
   })
 
   it('accepts empty delete inbound responses', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 204 }))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 204, text: async () => '' }))
     await expect(api.deleteInbound(3)).resolves.toBeUndefined()
     expect(fetch).toHaveBeenCalledWith('/api/v1/inbounds/3', expect.objectContaining({ method: 'DELETE' }))
   })
@@ -39,7 +39,7 @@ describe('api client', () => {
   it('reads the current subscription URL without rotating it', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ url: 'https://example.test/sub/stable' }),
+      text: async () => JSON.stringify({ url: 'https://example.test/sub/stable' }),
     }))
 
     await expect(api.subscriptionURL(7)).resolves.toEqual({ url: 'https://example.test/sub/stable' })
@@ -51,7 +51,7 @@ describe('api client', () => {
   it('renews a subscription by day count', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ id: 7 }),
+      text: async () => JSON.stringify({ id: 7 }),
     }))
 
     await api.renewSubscription(7, 30)
@@ -60,5 +60,10 @@ describe('api client', () => {
       method: 'POST',
       body: JSON.stringify({ days: 30 }),
     }))
+  })
+
+  it('accepts empty successful responses without parsing JSON', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => '' }))
+    await expect(api.restartPanel()).resolves.toBeUndefined()
   })
 })

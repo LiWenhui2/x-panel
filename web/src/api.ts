@@ -70,8 +70,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },
   })
-  if (response.status === 204) return undefined as T
-  const body = await response.json()
+  const text = await response.text()
+  const body = text ? JSON.parse(text) : undefined
   if (!response.ok) throw new Error(body.message ?? `HTTP ${response.status}`)
   return body as T
 }
