@@ -16,9 +16,10 @@ import (
 )
 
 var (
-	ErrInvalidInput = errors.New("invalid subscription input")
-	ErrNotFound     = errors.New("subscription not found")
-	ErrInactive     = errors.New("subscription inactive")
+	ErrInvalidInput     = errors.New("invalid subscription input")
+	ErrNotFound         = errors.New("subscription not found")
+	ErrInactive         = errors.New("subscription inactive")
+	ErrTokenUnavailable = errors.New("subscription token unavailable")
 )
 
 type InboundSource interface {
@@ -56,7 +57,7 @@ func (s *Service) Create(ctx context.Context, input Input) (Subscription, string
 	}
 	created, err := s.repository.CreateSubscription(ctx, Subscription{
 		Name: input.Name, Enabled: input.Enabled, InboundIDs: input.InboundIDs, TokenHint: hint,
-		TotalBytes: input.TotalBytes, ExpiryTime: input.ExpiryTime,
+		Token: token, TotalBytes: input.TotalBytes, ExpiryTime: input.ExpiryTime,
 	}, tokenHash)
 	normalizeUsage(&created)
 	return created, token, err
@@ -116,12 +117,27 @@ func (s *Service) Rotate(ctx context.Context, id int64) (Subscription, string, e
 	if err != nil {
 		return Subscription{}, "", err
 	}
-	updated, err := s.repository.RotateSubscriptionToken(ctx, id, tokenHash, hint)
+	updated, err := s.repository.RotateSubscriptionToken(ctx, id, tokenHash, hint, token)
 	if err != nil {
 		return Subscription{}, "", mapNotFound(err)
 	}
 	normalizeUsage(&updated)
 	return updated, token, nil
+}
+
+func (s *Service) Token(ctx context.Context, id int64) (Subscription, string, error) {
+	if id <= 0 {
+		return Subscription{}, "", ErrNotFound
+	}
+	item, token, err := s.repository.SubscriptionToken(ctx, id)
+	if err != nil {
+		return Subscription{}, "", mapNotFound(err)
+	}
+	if strings.TrimSpace(token) == "" {
+		return Subscription{}, "", ErrTokenUnavailable
+	}
+	normalizeUsage(&item)
+	return item, token, nil
 }
 
 func (s *Service) Delete(ctx context.Context, id int64) error {

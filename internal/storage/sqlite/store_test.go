@@ -115,7 +115,7 @@ func TestListSubscriptionsReturnsEmptyInboundIDsAfterInboundDelete(t *testing.T)
 		t.Fatal(err)
 	}
 	_, err = store.CreateSubscription(ctx, subscription.Subscription{
-		Name: "orphaned", Enabled: true, InboundIDs: []int64{node.ID}, ExpiryTime: inbound.DefaultExpiryTime,
+		Name: "orphaned", Enabled: true, InboundIDs: []int64{node.ID}, Token: "stable-token", ExpiryTime: inbound.DefaultExpiryTime,
 	}, "token-hash")
 	if err != nil {
 		t.Fatal(err)
@@ -132,6 +132,39 @@ func TestListSubscriptionsReturnsEmptyInboundIDsAfterInboundDelete(t *testing.T)
 	}
 	if subscriptions[0].InboundIDs == nil || len(subscriptions[0].InboundIDs) != 0 {
 		t.Fatalf("expected empty inbound IDs slice, got %#v", subscriptions[0].InboundIDs)
+	}
+}
+
+func TestSubscriptionTokenPersistsUntilRotate(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "subscription-token.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	created, err := store.CreateSubscription(ctx, subscription.Subscription{
+		Name: "stable", Enabled: true, Token: "first-token", TokenHint: "token",
+		ExpiryTime: inbound.DefaultExpiryTime,
+	}, "first-hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := store.SubscriptionToken(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token != "first-token" {
+		t.Fatalf("expected initial token to be readable, got %q", token)
+	}
+	if _, err := store.RotateSubscriptionToken(ctx, created.ID, "second-hash", "oken", "second-token"); err != nil {
+		t.Fatal(err)
+	}
+	_, token, err = store.SubscriptionToken(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token != "second-token" {
+		t.Fatalf("expected rotated token to be readable, got %q", token)
 	}
 }
 

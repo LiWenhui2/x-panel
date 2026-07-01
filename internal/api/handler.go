@@ -91,6 +91,7 @@ func (h *Handler) Routes() http.Handler {
 			protected.Get("/api/v1/subscriptions", h.listSubscriptions)
 			protected.Post("/api/v1/subscriptions", h.createSubscription)
 			protected.Put("/api/v1/subscriptions/{id}", h.updateSubscription)
+			protected.Get("/api/v1/subscriptions/{id}/url", h.subscriptionURL)
 			protected.Post("/api/v1/subscriptions/{id}/renew", h.renewSubscription)
 			protected.Post("/api/v1/subscriptions/{id}/rotate", h.rotateSubscription)
 			protected.Delete("/api/v1/subscriptions/{id}", h.deleteSubscription)
@@ -194,6 +195,19 @@ func (h *Handler) updateSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) subscriptionURL(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	item, token, err := h.subscriptions.Token(r.Context(), id)
+	if err != nil {
+		h.writeSubscriptionError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"subscription": item, "url": subscriptionURL(r, token)})
 }
 
 func (h *Handler) renewSubscription(w http.ResponseWriter, r *http.Request) {
@@ -311,6 +325,8 @@ func (h *Handler) writeSubscriptionError(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusUnprocessableEntity, "subscription_validation_failed", err.Error())
 	case errors.Is(err, subscription.ErrNotFound):
 		writeError(w, http.StatusNotFound, "subscription_not_found", "subscription not found")
+	case errors.Is(err, subscription.ErrTokenUnavailable):
+		writeError(w, http.StatusConflict, "subscription_token_unavailable", "subscription token is unavailable; refresh the subscription link once")
 	default:
 		h.internalError(w, r, err)
 	}

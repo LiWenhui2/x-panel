@@ -8,6 +8,7 @@ type Subscription struct {
 	Enabled        bool      `json:"enabled"`
 	InboundIDs     []int64   `json:"inboundIds"`
 	TokenHint      string    `json:"tokenHint"`
+	Token          string    `json:"-"`
 	TotalBytes     int64     `json:"totalBytes"`
 	UsedBytes      int64     `json:"usedBytes"`
 	RemainingBytes int64     `json:"remainingBytes"`

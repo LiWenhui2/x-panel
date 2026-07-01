@@ -36,6 +36,18 @@ describe('api client', () => {
     expect(fetch).toHaveBeenCalledWith('/api/v1/inbounds/3', expect.objectContaining({ method: 'DELETE' }))
   })
 
+  it('reads the current subscription URL without rotating it', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ url: 'https://example.test/sub/stable' }),
+    }))
+
+    await expect(api.subscriptionURL(7)).resolves.toEqual({ url: 'https://example.test/sub/stable' })
+    expect(fetch).toHaveBeenCalledWith('/api/v1/subscriptions/7/url', expect.any(Object))
+    const [, init] = vi.mocked(fetch).mock.calls[0]!
+    expect(init).not.toEqual(expect.objectContaining({ method: 'POST' }))
+  })
+
   it('renews a subscription by day count', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,

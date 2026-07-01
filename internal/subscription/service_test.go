@@ -29,13 +29,16 @@ func (r *renewRepository) UpdateSubscription(_ context.Context, id int64, input 
 	r.item.ExpiryTime = input.ExpiryTime
 	return r.item, nil
 }
-func (r *renewRepository) RotateSubscriptionToken(context.Context, int64, string, string) (Subscription, error) {
+func (r *renewRepository) RotateSubscriptionToken(context.Context, int64, string, string, string) (Subscription, error) {
 	panic("not used")
 }
 func (r *renewRepository) DeleteSubscription(context.Context, int64) error {
 	panic("not used")
 }
 func (r *renewRepository) FindSubscriptionByTokenHash(context.Context, string) (Subscription, error) {
+	panic("not used")
+}
+func (r *renewRepository) SubscriptionToken(context.Context, int64) (Subscription, string, error) {
 	panic("not used")
 }
 

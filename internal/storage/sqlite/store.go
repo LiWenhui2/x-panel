@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   name TEXT NOT NULL,
   token_hash TEXT NOT NULL UNIQUE,
   token_hint TEXT NOT NULL,
+  token TEXT NOT NULL DEFAULT '',
   enabled INTEGER NOT NULL DEFAULT 1,
   total_bytes INTEGER NOT NULL DEFAULT 0,
   used_bytes INTEGER NOT NULL DEFAULT 0,
@@ -244,6 +245,7 @@ func (s *Store) ensureSubscriptionColumns() error {
 		"total_bytes": "INTEGER NOT NULL DEFAULT 0",
 		"used_bytes":  "INTEGER NOT NULL DEFAULT 0",
 		"expiry_time": "TEXT NOT NULL DEFAULT ''",
+		"token":       "TEXT NOT NULL DEFAULT ''",
 	}
 	for name, definition := range columns {
 		if existing[name] {
@@ -366,8 +368,8 @@ func (s *Store) CreateSubscription(ctx context.Context, item subscription.Subscr
 		return subscription.Subscription{}, err
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `INSERT INTO subscriptions (name, token_hash, token_hint, enabled, total_bytes, used_bytes, expiry_time, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		item.Name, tokenHash, item.TokenHint, item.Enabled, item.TotalBytes, item.UsedBytes, item.ExpiryTime, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
+	result, err := tx.ExecContext(ctx, `INSERT INTO subscriptions (name, token_hash, token_hint, token, enabled, total_bytes, used_bytes, expiry_time, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		item.Name, tokenHash, item.TokenHint, item.Token, item.Enabled, item.TotalBytes, item.UsedBytes, item.ExpiryTime, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
 	if err != nil {
 		return subscription.Subscription{}, err
 	}
@@ -408,9 +410,9 @@ func (s *Store) UpdateSubscription(ctx context.Context, id int64, input subscrip
 	return s.getSubscriptionByID(ctx, id)
 }
 
-func (s *Store) RotateSubscriptionToken(ctx context.Context, id int64, tokenHash, hint string) (subscription.Subscription, error) {
-	result, err := s.db.ExecContext(ctx, `UPDATE subscriptions SET token_hash = ?, token_hint = ?, updated_at = ? WHERE id = ?`,
-		tokenHash, hint, time.Now().UTC().Format(time.RFC3339Nano), id)
+func (s *Store) RotateSubscriptionToken(ctx context.Context, id int64, tokenHash, hint, token string) (subscription.Subscription, error) {
+	result, err := s.db.ExecContext(ctx, `UPDATE subscriptions SET token_hash = ?, token_hint = ?, token = ?, updated_at = ? WHERE id = ?`,
+		tokenHash, hint, token, time.Now().UTC().Format(time.RFC3339Nano), id)
 	if err != nil {
 		return subscription.Subscription{}, err
 	}
@@ -452,8 +454,16 @@ func (s *Store) FindSubscriptionByTokenHash(ctx context.Context, tokenHash strin
 	return item, err
 }
 
+func (s *Store) SubscriptionToken(ctx context.Context, id int64) (subscription.Subscription, string, error) {
+	item, err := s.getSubscriptionByID(ctx, id)
+	if err != nil {
+		return subscription.Subscription{}, "", err
+	}
+	return item, item.Token, nil
+}
+
 const subscriptionSelect = `
-SELECT s.id, s.name, s.enabled, s.token_hint, s.total_bytes, s.used_bytes, s.expiry_time, s.created_at, s.updated_at,
+SELECT s.id, s.name, s.enabled, s.token_hint, s.token, s.total_bytes, s.used_bytes, s.expiry_time, s.created_at, s.updated_at,
        COALESCE(GROUP_CONCAT(si.inbound_id, ','), '')
 FROM subscriptions s
 LEFT JOIN subscription_inbounds si ON si.subscription_id = s.id`
@@ -463,7 +473,7 @@ type rowScanner interface{ Scan(...any) error }
 func scanSubscription(scanner rowScanner) (subscription.Subscription, error) {
 	var item subscription.Subscription
 	var createdAt, updatedAt, inboundIDs string
-	if err := scanner.Scan(&item.ID, &item.Name, &item.Enabled, &item.TokenHint, &item.TotalBytes, &item.UsedBytes, &item.ExpiryTime, &createdAt, &updatedAt, &inboundIDs); err != nil {
+	if err := scanner.Scan(&item.ID, &item.Name, &item.Enabled, &item.TokenHint, &item.Token, &item.TotalBytes, &item.UsedBytes, &item.ExpiryTime, &createdAt, &updatedAt, &inboundIDs); err != nil {
 		return subscription.Subscription{}, err
 	}
 	item.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)

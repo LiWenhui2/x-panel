@@ -340,9 +340,8 @@ async function renewSubscription(item: Subscription, days: number) {
 async function ensureSubscriptionURL(item: Subscription) {
   const value = subscriptionURLs[item.id]
   if (value) return value
-  const result = await api.rotateSubscription(item.id)
+  const result = await api.subscriptionURL(item.id)
   subscriptionURLs[item.id] = result.url
-  await refreshSubscriptions()
   return result.url
 }
 

@@ -106,6 +106,8 @@ export const api = {
     request<SubscriptionWithURL>('/api/v1/subscriptions', { method: 'POST', body: JSON.stringify(input) }),
   updateSubscription: (id: number, input: SubscriptionInput) =>
     request<Subscription>(`/api/v1/subscriptions/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
+  subscriptionURL: (id: number) =>
+    request<SubscriptionWithURL>(`/api/v1/subscriptions/${id}/url`),
   renewSubscription: (id: number, days: number) =>
     request<Subscription>(`/api/v1/subscriptions/${id}/renew`, { method: 'POST', body: JSON.stringify({ days }) }),
   rotateSubscription: (id: number) =>
