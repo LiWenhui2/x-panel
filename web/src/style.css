@@ -26,6 +26,8 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   background: #fff;
   box-shadow: 0 24px 70px rgba(30, 48, 80, .12);
 }
+.boot-page .auth-card { width: auto; padding: 28px; }
+.boot-page .logo-orb { margin-bottom: 0; }
 .logo-orb {
   width: 64px;
   height: 64px;

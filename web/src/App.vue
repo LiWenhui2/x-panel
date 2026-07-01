@@ -30,6 +30,7 @@ const message = ref('')
 const username = ref('')
 const authenticated = ref(false)
 const needsSetup = ref(false)
+const authReady = ref(false)
 const loading = ref(false)
 const loadingNodes = ref(false)
 const modalOpen = ref(false)
@@ -37,7 +38,8 @@ const shareOpen = ref(false)
 const githubExpanded = ref(false)
 const subscriptionModalOpen = ref(false)
 const editingInboundId = ref<number | null>(null)
-const activeView = ref<View>('overview')
+const savedView = localStorage.getItem('xpanel-active-view') as View | null
+const activeView = ref<View>(savedView && ['overview', 'inbounds', 'subscriptions', 'settings'].includes(savedView) ? savedView : 'overview')
 const restartNeeded = ref(false)
 const shareLink = ref('')
 const shareRemark = ref('')
@@ -179,11 +181,21 @@ async function loadStatus() {
     settingsForm.username = status.username || ''
     if (authenticated.value) {
       await Promise.all([refresh(), refreshSystem(), loadSettings()])
+      if (activeView.value === 'subscriptions') await refreshSubscriptions()
       startStatusPolling()
     }
   } catch (cause) {
     fail(errorText(cause))
+  } finally {
+    authReady.value = true
   }
+}
+
+async function setActiveView(view: View) {
+  activeView.value = view
+  localStorage.setItem('xpanel-active-view', view)
+  if (view === 'subscriptions' && !subscriptions.value.length) await refreshSubscriptions()
+  if (view === 'settings' && !panelSettings.value) await loadSettings()
 }
 
 async function verifySession() {
@@ -262,8 +274,7 @@ function stopStatusPolling() {
 }
 
 async function showSubscriptions() {
-  activeView.value = 'subscriptions'
-  if (!subscriptions.value.length) await refreshSubscriptions()
+  await setActiveView('subscriptions')
 }
 
 async function refreshSubscriptions() {
@@ -598,7 +609,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div v-if="!authenticated" class="auth-page">
+  <div v-if="!authReady" class="auth-page boot-page">
+    <section class="auth-card">
+      <div class="logo-orb"><IconShieldCheck /></div>
+    </section>
+  </div>
+
+  <div v-else-if="!authenticated" class="auth-page">
     <div class="language-switch auth-language" role="group" aria-label="Language">
       <button :class="{ active: language === 'en' }" @click="setLanguage('en')">EN</button>
       <button :class="{ active: language === 'zh' }" @click="setLanguage('zh')">中文</button>
@@ -621,10 +638,10 @@ onBeforeUnmount(() => {
     <aside class="sidebar">
       <div class="brand"><IconRocket /><div><strong>XPanel</strong><small>XRAY OPERATIONS</small></div></div>
       <nav>
-        <a :class="{ active: activeView === 'overview' }" href="#" @click.prevent="activeView='overview'"><IconDashboard /><span>{{ t('overview') }}</span></a>
-        <a :class="{ active: activeView === 'inbounds' }" href="#" @click.prevent="activeView='inbounds'"><IconServer /><span>{{ t('inbounds') }}</span><b>{{ items.length }}</b></a>
+        <a :class="{ active: activeView === 'overview' }" href="#" @click.prevent="setActiveView('overview')"><IconDashboard /><span>{{ t('overview') }}</span></a>
+        <a :class="{ active: activeView === 'inbounds' }" href="#" @click.prevent="setActiveView('inbounds')"><IconServer /><span>{{ t('inbounds') }}</span><b>{{ items.length }}</b></a>
         <a :class="{ active: activeView === 'subscriptions' }" href="#" @click.prevent="showSubscriptions"><IconLink /><span>{{ t('subscriptions') }}</span><b>{{ subscriptions.length }}</b></a>
-        <a :class="{ active: activeView === 'settings' }" href="#" @click.prevent="activeView='settings'"><IconSettings /><span>{{ t('settings') }}</span></a>
+        <a :class="{ active: activeView === 'settings' }" href="#" @click.prevent="setActiveView('settings')"><IconSettings /><span>{{ t('settings') }}</span></a>
         <button class="sidebar-menu-button" :class="{ expanded: githubExpanded }" @click="githubExpanded=!githubExpanded">
           <IconBrandGithub /><span>{{ t('github') }}</span><IconChevronDown class="menu-chevron" />
         </button>
