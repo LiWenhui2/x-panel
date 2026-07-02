@@ -3,6 +3,9 @@ set -Eeuo pipefail
 
 REPO_URL=${XPANEL_REPO_URL:-"https://github.com/LiWenhui2/x-panel.git"}
 BRANCH=${XPANEL_BRANCH:-"main"}
+RELEASE_REPO=${XPANEL_RELEASE_REPO:-"LiWenhui2/x-panel"}
+RELEASE_TAG=${XPANEL_RELEASE_TAG:-"latest"}
+INSTALL_MODE=${XPANEL_INSTALL_MODE:-"auto"}
 INSTALL_DIR=${XPANEL_INSTALL_DIR:-"/opt/xpanel/src"}
 DATA_DIR=${XPANEL_DATA_DIR:-"/var/lib/xpanel"}
 XRAY_DIR=${XPANEL_XRAY_DIR:-"/opt/xpanel/bin"}
@@ -11,6 +14,11 @@ NODE_MAJOR=${XPANEL_NODE_MAJOR:-"24"}
 PANEL_PORT=${XPANEL_PANEL_PORT:-"8080"}
 ADMIN_USERNAME=${XPANEL_ADMIN_USERNAME:-"admin"}
 ADMIN_PASSWORD=${XPANEL_ADMIN_PASSWORD:-"admin123456"}
+MIN_BUILD_MEMORY_MB=${XPANEL_MIN_BUILD_MEMORY_MB:-"1800"}
+TEMP_SWAP_SIZE_MB=${XPANEL_TEMP_SWAP_SIZE_MB:-"2048"}
+TEMP_SWAP_FILE=${XPANEL_TEMP_SWAP_FILE:-"/tmp/xpanel-install.swap"}
+BINARY_PATH=""
+TEMP_SWAP_CREATED=0
 
 log() { printf '\033[1;32m[XPANEL]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[XPANEL]\033[0m %s\n' "$*" >&2; exit 1; }
@@ -54,8 +62,18 @@ run_with_progress() {
   return "${status}"
 }
 
+cleanup_temp_swap() {
+  if (( TEMP_SWAP_CREATED == 1 )); then
+    log "Removing temporary build swap"
+    swapoff "${TEMP_SWAP_FILE}" 2>/dev/null || true
+    rm -f "${TEMP_SWAP_FILE}" 2>/dev/null || true
+  fi
+}
+
 build_xpanel_binary() {
-  (cd "${INSTALL_DIR}" && CGO_ENABLED=0 go build -a -buildvcs=false -trimpath -ldflags='-s -w' -o dist/xpanel-linux-amd64 ./cmd/xpanel)
+  local arch
+  arch="$(detect_arch)"
+  (cd "${INSTALL_DIR}" && GOMAXPROCS="${XPANEL_BUILD_PROCS:-1}" CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" go build -buildvcs=false -trimpath -ldflags='-s -w' -o "dist/xpanel-linux-${arch}" ./cmd/xpanel)
 }
 
 require_root() {
@@ -116,15 +134,45 @@ detect_server_ip() {
   printf '%s' "${address:-127.0.0.1}"
 }
 
-install_apt_deps() {
+install_base_deps() {
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
-  apt-get install -y ca-certificates curl git unzip tar sudo ufw
+  apt-get install -y --no-install-recommends ca-certificates curl git unzip tar sudo ufw
+}
+
+install_build_deps() {
+  export DEBIAN_FRONTEND=noninteractive
   if ! command -v node >/dev/null 2>&1 || ! node -v | grep -Eq "^v${NODE_MAJOR}\."; then
     log "Installing Node.js ${NODE_MAJOR}.x"
     curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
-    apt-get install -y nodejs
+    apt-get install -y --no-install-recommends nodejs
   fi
+}
+
+ensure_build_memory() {
+  local mem_mb swap_mb total_mb
+  mem_mb=$(awk '/MemTotal:/ {print int($2 / 1024)}' /proc/meminfo 2>/dev/null || echo 0)
+  swap_mb=$(awk '/SwapTotal:/ {print int($2 / 1024)}' /proc/meminfo 2>/dev/null || echo 0)
+  total_mb=$(( mem_mb + swap_mb ))
+
+  if (( total_mb >= MIN_BUILD_MEMORY_MB || TEMP_SWAP_SIZE_MB <= 0 )); then
+    return
+  fi
+  if [[ -e "${TEMP_SWAP_FILE}" ]]; then
+    log "Low memory detected, but ${TEMP_SWAP_FILE} already exists; skipping temporary swap creation"
+    return
+  fi
+
+  log "Low memory detected (${mem_mb}MB RAM, ${swap_mb}MB swap); creating ${TEMP_SWAP_SIZE_MB}MB temporary build swap"
+  if command -v fallocate >/dev/null 2>&1; then
+    fallocate -l "${TEMP_SWAP_SIZE_MB}M" "${TEMP_SWAP_FILE}" || dd if=/dev/zero of="${TEMP_SWAP_FILE}" bs=1M count="${TEMP_SWAP_SIZE_MB}" status=progress
+  else
+    dd if=/dev/zero of="${TEMP_SWAP_FILE}" bs=1M count="${TEMP_SWAP_SIZE_MB}" status=progress
+  fi
+  chmod 600 "${TEMP_SWAP_FILE}"
+  mkswap "${TEMP_SWAP_FILE}" >/dev/null
+  swapon "${TEMP_SWAP_FILE}"
+  TEMP_SWAP_CREATED=1
 }
 
 install_go() {
@@ -174,12 +222,55 @@ checkout_source() {
   fi
 }
 
+release_download_url() {
+  local asset=$1
+  if [[ "${RELEASE_TAG}" == "latest" ]]; then
+    printf 'https://github.com/%s/releases/latest/download/%s' "${RELEASE_REPO}" "${asset}"
+  else
+    printf 'https://github.com/%s/releases/download/%s/%s' "${RELEASE_REPO}" "${RELEASE_TAG}" "${asset}"
+  fi
+}
+
+install_prebuilt_binary() {
+  local arch asset url target
+  case "${INSTALL_MODE}" in
+    auto|release|source) ;;
+    *) die "Invalid XPANEL_INSTALL_MODE: ${INSTALL_MODE}. Use auto, release, or source." ;;
+  esac
+  if [[ "${INSTALL_MODE}" == "source" ]]; then
+    return 1
+  fi
+
+  arch="$(detect_arch)"
+  asset="xpanel-linux-${arch}"
+  url="$(release_download_url "${asset}")"
+  target="/tmp/${asset}"
+  log "Downloading prebuilt xpanel binary: ${url}"
+  if curl -fL --retry 3 --retry-delay 2 "${url}" -o "${target}"; then
+    chmod 0755 "${target}"
+    BINARY_PATH="${target}"
+    return 0
+  fi
+
+  if [[ "${INSTALL_MODE}" == "release" ]]; then
+    die "Failed to download release binary. Set XPANEL_INSTALL_MODE=source to build on this server."
+  fi
+  log "Prebuilt binary unavailable; falling back to source build"
+  return 1
+}
+
 build_project() {
+  local arch
+  arch="$(detect_arch)"
+  install_build_deps
+  install_go
+  ensure_build_memory
   log "Building web assets"
-  npm --prefix "${INSTALL_DIR}/web" ci
-  npm --prefix "${INSTALL_DIR}/web" run build
+  npm --prefix "${INSTALL_DIR}/web" ci --no-audit --no-fund --loglevel=error
+  npm --prefix "${INSTALL_DIR}/web" run build -- --mode production
   mkdir -p "${INSTALL_DIR}/dist"
   run_with_progress "Building xpanel binary" build_xpanel_binary
+  BINARY_PATH="${INSTALL_DIR}/dist/xpanel-linux-${arch}"
 }
 
 install_services() {
@@ -188,7 +279,8 @@ install_services() {
   install -d -o xpanel -g xpanel -m 0750 "${DATA_DIR}" "${DATA_DIR}/xray"
   install -d -m 0755 /etc/xpanel
 
-  install -m 0755 "${INSTALL_DIR}/dist/xpanel-linux-amd64" /usr/local/bin/xpanel
+  [[ -n "${BINARY_PATH}" && -f "${BINARY_PATH}" ]] || die "Built xpanel binary not found."
+  install -m 0755 "${BINARY_PATH}" /usr/local/bin/xpanel
   install -m 0755 "${INSTALL_DIR}/packaging/x-panel" /usr/local/bin/x-panel
   install -d -m 0755 /usr/local/libexec
   install -m 0755 "${INSTALL_DIR}/packaging/xpanel-allow-port" /usr/local/libexec/xpanel-allow-port
@@ -252,13 +344,13 @@ EOF
 }
 
 main() {
+  trap cleanup_temp_swap EXIT
   require_root
   collect_setup
-  install_apt_deps
-  install_go
+  install_base_deps
   install_xray
   checkout_source
-  build_project
+  install_prebuilt_binary || build_project
   install_services
   post_check
 }

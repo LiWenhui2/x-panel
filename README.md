@@ -21,6 +21,18 @@ During installation, the script asks for:
 - administrator username;
 - administrator password.
 
+The installer downloads a prebuilt Linux binary from the latest GitHub Release by default, so small VPS instances do not need to run `npm ci` or compile Go code. If no release asset is available, it falls back to building from source with a temporary swap file on low-memory servers.
+
+Useful installer overrides:
+
+```bash
+# Force source build
+XPANEL_INSTALL_MODE=source bash <(curl -fsSL https://raw.githubusercontent.com/LiWenhui2/x-panel/main/packaging/install.sh)
+
+# Install a specific release tag
+XPANEL_RELEASE_TAG=v0.1.0 bash <(curl -fsSL https://raw.githubusercontent.com/LiWenhui2/x-panel/main/packaging/install.sh)
+```
+
 ## Open the panel
 
 After installation, open the address printed by the installer:
