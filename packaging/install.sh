@@ -302,6 +302,7 @@ EOF
 
   chown -R xpanel:xpanel "${DATA_DIR}"
   XPANEL_DATA_DIR="${DATA_DIR}" /usr/local/bin/xpanel user set --username "${ADMIN_USERNAME}" --password "${ADMIN_PASSWORD}"
+  chown -R xpanel:xpanel "${DATA_DIR}"
   systemctl daemon-reload
   systemctl enable xpanel.service xpanel-xray.service >/dev/null
   systemctl restart xpanel.service
