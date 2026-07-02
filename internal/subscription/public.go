@@ -81,6 +81,14 @@ func BuildPublicDocument(item Subscription, nodes []inbound.Inbound, address str
 func itemVersion() int { return 2 }
 
 func buildShareLink(item inbound.Inbound, address string) string {
+	return buildShareLinkWithOptions(item, address, false)
+}
+
+func buildShadowrocketLink(item inbound.Inbound, address string) string {
+	return buildShareLinkWithOptions(item, address, true)
+}
+
+func buildShareLinkWithOptions(item inbound.Inbound, address string, shadowrocket bool) string {
 	if item.Protocol == inbound.ProtocolVMess {
 		payload := map[string]any{
 			"v": "2", "ps": item.Remark, "add": address, "port": item.Port, "id": item.ClientID,
@@ -93,6 +101,9 @@ func buildShareLink(item inbound.Inbound, address string) string {
 	values := url.Values{}
 	values.Set("type", string(item.Network))
 	values.Set("security", string(item.Security))
+	if shadowrocket {
+		values.Set("encryption", "none")
+	}
 	if item.WSPath != "" {
 		values.Set("path", item.WSPath)
 	}
@@ -199,6 +210,19 @@ func BuildNexoraSubscription(item Subscription, nodes []inbound.Inbound, address
 
 func BuildV2RaySubscription(item Subscription, nodes []inbound.Inbound, address string) string {
 	return base64.StdEncoding.EncodeToString([]byte(strings.Join(BuildLinkList(item, nodes, address), "\n")))
+}
+
+func BuildShadowrocketSubscription(item Subscription, nodes []inbound.Inbound, address string) string {
+	links := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		nodeAddress := strings.TrimSpace(node.Listen)
+		if nodeAddress == "" || nodeAddress == "0.0.0.0" || nodeAddress == "::" || nodeAddress == "127.0.0.1" {
+			nodeAddress = address
+		}
+		node.TotalBytes, node.UsedBytes, node.RemainingBytes, node.ExpiryTime = item.TotalBytes, item.UsedBytes, item.RemainingBytes, item.ExpiryTime
+		links = append(links, buildShadowrocketLink(node, nodeAddress))
+	}
+	return base64.StdEncoding.EncodeToString([]byte(strings.Join(links, "\n")))
 }
 
 func BuildClashSubscription(item Subscription, nodes []inbound.Inbound, address string) string {

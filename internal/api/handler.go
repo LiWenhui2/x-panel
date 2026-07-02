@@ -312,6 +312,10 @@ func (h *Handler) publicSubscription(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(strings.Join(subscription.BuildLinkList(item, nodes, host), "\n")))
+	case "shadowrocket", "shadow-rocket":
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(subscription.BuildShadowrocketSubscription(item, nodes, host)))
 	default:
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)

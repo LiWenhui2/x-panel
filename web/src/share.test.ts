@@ -40,5 +40,6 @@ describe('share links', () => {
   it('builds client-specific exports', () => {
     expect(buildClientExport(inbound, '203.0.113.10', 'clash')).toContain('proxies:')
     expect(buildClientExport(inbound, '203.0.113.10', 'sing-box')).toContain('"outbounds"')
+    expect(buildClientExport(inbound, '203.0.113.10', 'shadowrocket')).toContain('encryption=none')
   })
 })

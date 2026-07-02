@@ -1,6 +1,6 @@
 import type { Inbound } from './api'
 
-export type ExportClientId = 'nexora' | 'v2rayn' | 'clash' | 'sing-box'
+export type ExportClientId = 'nexora' | 'v2rayn' | 'shadowrocket' | 'clash' | 'sing-box'
 
 export function buildClientExport(item: Inbound, address: string, client: ExportClientId) {
   switch (client) {
@@ -10,14 +10,16 @@ export function buildClientExport(item: Inbound, address: string, client: Export
       return buildClashNode(item, address)
     case 'sing-box':
       return buildSingBoxNode(item, address)
+    case 'shadowrocket':
+      return buildShareLink(item, address, true)
     default:
       return buildShareLink(item, address)
   }
 }
 
-export function buildShareLink(item: Inbound, address: string) {
+export function buildShareLink(item: Inbound, address: string, shadowrocket = false) {
   const name = encodeURIComponent(item.remark || item.tag || `${item.protocol}-${item.port}`)
-  return item.protocol === 'vmess' ? buildVMessLink(item, address) : buildVLESSLink(item, address, name)
+  return item.protocol === 'vmess' ? buildVMessLink(item, address) : buildVLESSLink(item, address, name, shadowrocket)
 }
 
 export function buildNexoraNodeExport(item: Inbound, address: string) {
@@ -31,10 +33,11 @@ export function buildNexoraNodeExport(item: Inbound, address: string) {
   }, null, 2)
 }
 
-function buildVLESSLink(item: Inbound, address: string, name: string) {
+function buildVLESSLink(item: Inbound, address: string, name: string, shadowrocket = false) {
   const params = new URLSearchParams()
   params.set('type', item.network)
   params.set('security', item.security)
+  if (shadowrocket) params.set('encryption', 'none')
   if (item.wsPath) params.set('path', item.wsPath)
   return `vless://${item.clientId}@${address}:${item.port}?${params.toString()}#${name}`
 }

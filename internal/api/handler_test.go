@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -278,6 +279,22 @@ func TestPublicSubscriptionDocument(t *testing.T) {
 	defer response.Body.Close()
 	if contentType := response.Header.Get("Content-Type"); !strings.HasPrefix(contentType, "text/plain") {
 		t.Fatalf("expected v2ray text subscription, got %s", contentType)
+	}
+	response, err = server.Client().Get(server.URL + "/sub/" + token + "?format=shadowrocket")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(string(body))
+	if err != nil {
+		t.Fatalf("expected base64 shadowrocket subscription: %v", err)
+	}
+	if !strings.Contains(string(decoded), "vless://") || !strings.Contains(string(decoded), "encryption=none") {
+		t.Fatalf("unexpected shadowrocket subscription: %s", decoded)
 	}
 }
 

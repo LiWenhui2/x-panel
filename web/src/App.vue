@@ -61,6 +61,7 @@ const gib = 1024 ** 3
 const exportClients: Array<{ id: ExportClientId; name: string }> = [
   { id: 'nexora', name: 'Nexora' },
   { id: 'v2rayn', name: 'v2rayN' },
+  { id: 'shadowrocket', name: 'Shadowrocket' },
   { id: 'clash', name: 'Clash' },
   { id: 'sing-box', name: 'sing-box' },
 ]
@@ -906,7 +907,8 @@ onBeforeUnmount(() => {
                   :class="{ active: selectedExportClient === client.id, nexora: client.id === 'nexora' }"
                   @click="selectShareClient(client.id)"
                 >
-                  <img :src="clientIcon(client.id)" alt="" />
+                  <IconRocket v-if="client.id === 'shadowrocket'" />
+                  <img v-else :src="clientIcon(client.id)" alt="" />
                   <span>{{ client.name }}</span>
                 </button>
               </div>
