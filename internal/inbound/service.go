@@ -230,7 +230,7 @@ func subscriptionInactiveReason(binding SubscriptionBinding, now time.Time) stri
 	if !binding.Enabled {
 		return "subscription_disabled"
 	}
-	if binding.TotalBytes > 0 && binding.UsedBytes >= binding.TotalBytes {
+	if binding.TotalBytes <= 0 || binding.UsedBytes >= binding.TotalBytes {
 		return "traffic_exhausted"
 	}
 	if expiry, err := time.Parse(time.RFC3339, binding.ExpiryTime); err == nil && !now.Before(expiry) {

@@ -218,11 +218,13 @@ func normalizeUsage(item *Subscription) {
 	if item.ExpiryTime == "" {
 		item.ExpiryTime = inbound.DefaultExpiryTime
 	}
-	if item.TotalBytes > 0 {
-		item.RemainingBytes = item.TotalBytes - item.UsedBytes
-		if item.RemainingBytes < 0 {
-			item.RemainingBytes = 0
-		}
+	if item.TotalBytes <= 0 {
+		item.RemainingBytes = 0
+		return
+	}
+	item.RemainingBytes = item.TotalBytes - item.UsedBytes
+	if item.RemainingBytes < 0 {
+		item.RemainingBytes = 0
 	}
 }
 
@@ -230,7 +232,7 @@ func subscriptionActive(item Subscription, now time.Time) bool {
 	if !item.Enabled {
 		return false
 	}
-	if item.TotalBytes > 0 && item.UsedBytes >= item.TotalBytes {
+	if item.TotalBytes <= 0 || item.UsedBytes >= item.TotalBytes {
 		return false
 	}
 	if expiry, err := time.Parse(time.RFC3339, item.ExpiryTime); err == nil && !now.Before(expiry) {

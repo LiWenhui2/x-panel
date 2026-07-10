@@ -122,7 +122,7 @@ func TestActiveSubscriptionControlsDisabledNode(t *testing.T) {
 	repository := &testRepository{items: []Inbound{{
 		ID: 1, Tag: "inbound-1", Remark: "sub node", Enabled: false, ExpiryTime: DefaultExpiryTime,
 	}}, subscriptions: []SubscriptionBinding{{
-		ID: 9, Name: "active", Enabled: true, InboundIDs: []int64{1}, ExpiryTime: DefaultExpiryTime,
+		ID: 9, Name: "active", Enabled: true, InboundIDs: []int64{1}, TotalBytes: 1000, ExpiryTime: DefaultExpiryTime,
 	}}}
 
 	items, err := NewService(repository).List(context.Background())
@@ -138,8 +138,8 @@ func TestAnyInactiveSubscriptionBlocksSharedNode(t *testing.T) {
 	repository := &testRepository{items: []Inbound{{
 		ID: 1, Tag: "inbound-1", Enabled: true, ExpiryTime: DefaultExpiryTime,
 	}}, subscriptions: []SubscriptionBinding{
-		{ID: 1, Name: "active", Enabled: true, InboundIDs: []int64{1}, ExpiryTime: DefaultExpiryTime},
-		{ID: 2, Name: "expired", Enabled: true, InboundIDs: []int64{1}, ExpiryTime: "2020-01-01T00:00:00Z"},
+		{ID: 1, Name: "active", Enabled: true, InboundIDs: []int64{1}, TotalBytes: 1000, ExpiryTime: DefaultExpiryTime},
+		{ID: 2, Name: "expired", Enabled: true, InboundIDs: []int64{1}, TotalBytes: 1000, ExpiryTime: "2020-01-01T00:00:00Z"},
 	}}
 
 	items, err := NewService(repository).List(context.Background())

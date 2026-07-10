@@ -569,6 +569,13 @@ function formatBytes(value: number) {
   if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`
   return `${value} B`
 }
+function formatShareTotal() {
+  return shareSource.value === 'subscription' ? formatBytesExact(shareTotal.value) : formatBytes(shareTotal.value)
+}
+function formatShareRemaining() {
+  if (shareSource.value === 'subscription') return formatBytesExact(shareRemaining.value)
+  return shareTotal.value ? formatBytesExact(shareRemaining.value) : t('unlimited')
+}
 function formatBytesExact(value: number) {
   if (!value) return '0 B'
   if (value >= gib) return `${(value / gib).toFixed(1)} GB`
@@ -778,8 +785,8 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
                 <div class="subscription-usage">
-                  <div><span>{{ t('subscriptionUsage') }}</span><strong>{{ formatBytesExact(item.usedBytes) }} / {{ item.totalBytes ? formatBytes(item.totalBytes) : t('unlimited') }}</strong></div>
-                  <div><span>{{ t('remainingTraffic') }}</span><strong>{{ item.totalBytes ? formatBytesExact(item.remainingBytes) : t('unlimited') }}</strong></div>
+                  <div><span>{{ t('subscriptionUsage') }}</span><strong>{{ formatBytesExact(item.usedBytes) }} / {{ formatBytesExact(item.totalBytes) }}</strong></div>
+                  <div><span>{{ t('remainingTraffic') }}</span><strong>{{ formatBytesExact(item.remainingBytes) }}</strong></div>
                   <div><span>{{ t('expiry') }}</span><strong>{{ formatExpiry(item.expiryTime) }}</strong></div>
                 </div>
               </div>
@@ -914,9 +921,9 @@ onBeforeUnmount(() => {
               </div>
               <div class="share-info">
                 <div><span>{{ t('expiry') }}</span><strong>{{ formatExpiry(shareExpiry) }}</strong></div>
-                <div><span>{{ t('totalTraffic') }}</span><strong>{{ formatBytes(shareTotal) }}</strong></div>
+                <div><span>{{ t('totalTraffic') }}</span><strong>{{ formatShareTotal() }}</strong></div>
                 <div><span>{{ t('usedTraffic') }}</span><strong>{{ formatBytesExact(shareUsed) }}</strong></div>
-                <div><span>{{ t('remainingTraffic') }}</span><strong>{{ shareTotal ? formatBytesExact(shareRemaining) : t('unlimited') }}</strong></div>
+                <div><span>{{ t('remainingTraffic') }}</span><strong>{{ formatShareRemaining() }}</strong></div>
               </div>
             </div>
             <div class="qr-panel">

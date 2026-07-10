@@ -65,14 +65,14 @@ func TestSubscriptionLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := subscription.NewService(store, inboundService)
-	created, token, err := service.Create(ctx, subscription.Input{Name: "Primary", Enabled: true, InboundIDs: []int64{node.ID}})
+	created, token, err := service.Create(ctx, subscription.Input{Name: "Primary", Enabled: true, InboundIDs: []int64{node.ID}, TotalBytes: 4096})
 	if err != nil || token == "" {
 		t.Fatalf("create subscription: %v", err)
 	}
 	if _, nodes, err := service.Resolve(ctx, token); err != nil || len(nodes) != 1 {
 		t.Fatalf("resolve subscription: nodes=%#v err=%v", nodes, err)
 	}
-	updated, err := service.Update(ctx, created.ID, subscription.Input{Name: "Updated", Enabled: true, InboundIDs: []int64{node.ID}})
+	updated, err := service.Update(ctx, created.ID, subscription.Input{Name: "Updated", Enabled: true, InboundIDs: []int64{node.ID}, TotalBytes: 4096})
 	if err != nil || updated.Name != "Updated" {
 		t.Fatalf("update subscription: %#v %v", updated, err)
 	}
@@ -95,6 +95,42 @@ func TestSubscriptionLifecycle(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].Enabled {
 		t.Fatalf("expected deleting an exclusive subscription to disable its node, got %#v", items)
+	}
+}
+
+func TestZeroTrafficSubscriptionIsInactive(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "zero-subscription.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	inboundService := inbound.NewService(store)
+	node, err := inboundService.Create(ctx, inbound.CreateInput{
+		Remark: "zero-subscription-node", Listen: "0.0.0.0", Port: 30444, Protocol: inbound.ProtocolVLESS,
+		Network: inbound.NetworkTCP, Security: inbound.SecurityNone,
+		ClientID: "55555555-5555-4555-8555-555555555555", Email: "zero@example.com", Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := subscription.NewService(store, inboundService)
+	created, token, err := service.Create(ctx, subscription.Input{Name: "Zero", Enabled: true, InboundIDs: []int64{node.ID}, TotalBytes: 0})
+	if err != nil || token == "" {
+		t.Fatalf("create zero traffic subscription: %v", err)
+	}
+	if created.RemainingBytes != 0 {
+		t.Fatalf("expected zero remaining traffic, got %+v", created)
+	}
+	if _, _, err := service.Resolve(ctx, token); !errors.Is(err, subscription.ErrInactive) {
+		t.Fatalf("expected zero traffic subscription to be inactive, got %v", err)
+	}
+	items, err := inboundService.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Enabled || !items[0].TrafficBlocked || items[0].SubscriptionBlockReason != "traffic_exhausted" {
+		t.Fatalf("expected zero traffic subscription to block node, got %#v", items)
 	}
 }
 

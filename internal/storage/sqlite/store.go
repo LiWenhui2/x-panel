@@ -491,11 +491,13 @@ func scanSubscription(scanner rowScanner) (subscription.Subscription, error) {
 	if item.ExpiryTime == "" {
 		item.ExpiryTime = inbound.DefaultExpiryTime
 	}
-	if item.TotalBytes > 0 {
-		item.RemainingBytes = item.TotalBytes - item.UsedBytes
-		if item.RemainingBytes < 0 {
-			item.RemainingBytes = 0
-		}
+	if item.TotalBytes <= 0 {
+		item.RemainingBytes = 0
+		return item, nil
+	}
+	item.RemainingBytes = item.TotalBytes - item.UsedBytes
+	if item.RemainingBytes < 0 {
+		item.RemainingBytes = 0
 	}
 	return item, nil
 }

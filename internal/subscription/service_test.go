@@ -75,7 +75,7 @@ func TestRenewExpiredSubscriptionReactivatesAndExtendsFromNow(t *testing.T) {
 func TestRenewActiveSubscriptionExtendsFromExistingExpiry(t *testing.T) {
 	existing := time.Now().UTC().AddDate(0, 0, 10).Truncate(time.Second)
 	repository := &renewRepository{item: Subscription{
-		ID: 8, Name: "active", Enabled: true, InboundIDs: []int64{4}, ExpiryTime: existing.Format(time.RFC3339),
+		ID: 8, Name: "active", Enabled: true, InboundIDs: []int64{4}, TotalBytes: 1024, ExpiryTime: existing.Format(time.RFC3339),
 	}}
 
 	updated, err := NewService(repository, renewInboundSource{}).Renew(context.Background(), 8, RenewInput{Days: 30})
