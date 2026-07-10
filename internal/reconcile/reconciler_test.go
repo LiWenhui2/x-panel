@@ -31,7 +31,7 @@ func (a *testApplier) Apply(_ context.Context, content []byte, _ string) (runtim
 	return runtime.ApplyResult{}, nil
 }
 
-func TestReconcileAppliesBlockedStateOnlyWhenChanged(t *testing.T) {
+func TestReconcileAppliesOmittedBlockedStateOnlyWhenChanged(t *testing.T) {
 	applier := &testApplier{}
 	reconciler := &Reconciler{
 		Source: testSource{items: []inbound.Inbound{{
@@ -52,7 +52,16 @@ func TestReconcileAppliesBlockedStateOnlyWhenChanged(t *testing.T) {
 		t.Fatalf("expected one apply for an unchanged blocked state, got %d", applier.calls)
 	}
 	if len(applier.content) == 0 {
-		t.Fatal("expected blocked Xray config to be applied")
+		t.Fatal("expected Xray config to be applied")
+	}
+	var decoded struct {
+		Inbounds []map[string]any `json:"inbounds"`
+	}
+	if err := json.Unmarshal(applier.content, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Inbounds) != 1 || decoded.Inbounds[0]["tag"] != "api" {
+		t.Fatalf("expected blocked inbound to be omitted, got %+v", decoded.Inbounds)
 	}
 }
 

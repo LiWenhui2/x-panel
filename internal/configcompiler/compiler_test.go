@@ -59,7 +59,7 @@ func TestCompileVMessWebSocketAndSniffing(t *testing.T) {
 	}
 }
 
-func TestCompileRoutesBlockedInboundToBlackhole(t *testing.T) {
+func TestCompileOmitsTrafficBlockedInbound(t *testing.T) {
 	item := inbound.Inbound{
 		ID: 3, Tag: "inbound-3", Listen: "0.0.0.0", Port: 30443,
 		Protocol: inbound.ProtocolVLESS, Network: inbound.NetworkTCP, Security: inbound.SecurityNone,
@@ -75,15 +75,19 @@ func TestCompileRoutesBlockedInboundToBlackhole(t *testing.T) {
 		Routing  struct {
 			Rules []map[string]any `json:"rules"`
 		} `json:"routing"`
+		Outbounds []map[string]any `json:"outbounds"`
 	}
 	if err := json.Unmarshal(result.Content, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if len(decoded.Inbounds) != 2 {
-		t.Fatalf("expected blocked inbound to remain configured, got %d inbounds", len(decoded.Inbounds))
+	if len(decoded.Inbounds) != 1 || decoded.Inbounds[0]["tag"] != "api" {
+		t.Fatalf("expected blocked inbound to be omitted, got %+v", decoded.Inbounds)
 	}
-	if len(decoded.Routing.Rules) != 2 || decoded.Routing.Rules[1]["outboundTag"] != "blocked" {
-		t.Fatalf("expected blocked routing rule, got %+v", decoded.Routing.Rules)
+	if len(decoded.Routing.Rules) != 1 {
+		t.Fatalf("expected no blocked routing rule, got %+v", decoded.Routing.Rules)
+	}
+	if len(decoded.Outbounds) != 1 || decoded.Outbounds[0]["tag"] != "direct" {
+		t.Fatalf("expected only direct outbound, got %+v", decoded.Outbounds)
 	}
 }
 
