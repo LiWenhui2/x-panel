@@ -43,6 +43,22 @@ http://YOUR_SERVER_IP:PANEL_PORT/
 
 For a production deployment, place the panel behind an HTTPS reverse proxy and restrict access with your cloud firewall whenever possible.
 
+## Backend integration
+
+The browser UI continues to use its administrator session cookie. A separate backend can access node and subscription APIs only when both its source IP and service token are accepted:
+
+1. Open **Settings → Backend integration** in XPanel.
+2. Add the backend server IP, for example `43.136.117.106`.
+3. Generate a service token and save it immediately; the full token is shown once.
+4. Configure the calling backend with the public XPanel address and generated token.
+
+```bash
+XPANEL_BASE_URL=http://YOUR_XPANEL_SERVER:8080
+XPANEL_API_TOKEN=xp_generated_service_token
+```
+
+Service-token access is limited to node and subscription resources. Account changes, panel settings, config preview/apply and restart remain browser-admin only. The allowlist checks the direct TCP peer address.
+
 ## Command line control menu
 
 After installation, run:

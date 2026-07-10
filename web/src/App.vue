@@ -56,6 +56,8 @@ const subscriptionURLs = reactive<Record<number, string>>({})
 const subscriptionForm = reactive({ id: 0, name: '', enabled: true, inboundIds: [] as number[], totalGB: 0, expiryLocal: '2099-12-31T23:59' })
 const authForm = reactive({ username: '', password: '' })
 const settingsForm = reactive({ port: 0, username: '', password: '' })
+const integrationForm = reactive({ allowedIps: '' })
+const freshIntegrationToken = ref('')
 const language = ref<Language>((localStorage.getItem('xpanel-language') as Language) === 'en' ? 'en' : 'zh')
 const gib = 1024 ** 3
 const exportClients: Array<{ id: ExportClientId; name: string }> = [
@@ -260,6 +262,7 @@ async function loadSettings() {
   try {
     panelSettings.value = await api.settings()
     settingsForm.port = panelSettings.value.port || Number(window.location.port) || 8080
+    integrationForm.allowedIps = panelSettings.value.integration?.allowedIps?.join('\n') || ''
   } catch (cause) {
     fail(errorText(cause))
   }
@@ -465,6 +468,27 @@ async function saveAccount() {
     settingsForm.password = ''
     restartNeeded.value = true
     notify(t('restartRequired'))
+  } catch (cause) { fail(errorText(cause)) }
+  finally { loading.value = false }
+}
+
+async function saveIntegration(rotateToken = false) {
+  loading.value = true
+  try {
+    const allowedIps = integrationForm.allowedIps
+      .split(/[\n,;]+/)
+      .map(value => value.trim())
+      .filter(Boolean)
+    const result = await api.updateIntegration({ allowedIps, rotateToken })
+    if (panelSettings.value) panelSettings.value.integration = result.integration
+    integrationForm.allowedIps = result.integration.allowedIps.join('\n')
+    if (result.token) {
+      freshIntegrationToken.value = result.token
+      await copyText(result.token)
+      notify(t('integrationTokenRotated'))
+    } else {
+      notify(t('integrationSaved'))
+    }
   } catch (cause) { fail(errorText(cause)) }
   finally { loading.value = false }
 }
@@ -825,6 +849,25 @@ onBeforeUnmount(() => {
                 <label><span>{{ t('newUsername') }}</span><input v-model.trim="settingsForm.username" autocomplete="username" required /></label>
                 <label><span>{{ t('newPassword') }}</span><input v-model="settingsForm.password" type="password" autocomplete="new-password" required /></label>
                 <button class="primary" :disabled="loading"><IconCheck />{{ t('saveAccount') }}</button>
+              </form>
+            </article>
+            <article class="settings-panel integration-panel">
+              <header><IconShieldCheck /><div><h3>{{ t('integrationAccess') }}</h3><span>{{ t('integrationDescription') }}</span></div></header>
+              <form class="integration-form" @submit.prevent="saveIntegration(false)">
+                <label class="integration-ip-field"><span>{{ t('allowedSourceIps') }}</span><textarea v-model="integrationForm.allowedIps" rows="4" placeholder="43.136.117.106&#10;10.0.0.0/24"></textarea></label>
+                <div class="integration-token-status">
+                  <span>{{ t('serviceToken') }}</span>
+                  <code>{{ panelSettings?.integration?.tokenConfigured ? panelSettings.integration.tokenHint : t('notConfigured') }}</code>
+                </div>
+                <div v-if="freshIntegrationToken" class="fresh-integration-token">
+                  <span>{{ t('newServiceToken') }}</span>
+                  <code>{{ freshIntegrationToken }}</code>
+                  <button type="button" class="icon-button" :title="t('copyLink')" @click="copyText(freshIntegrationToken)"><IconCopy /></button>
+                </div>
+                <div class="integration-actions">
+                  <button class="primary" :disabled="loading"><IconCheck />{{ t('saveWhitelist') }}</button>
+                  <button type="button" class="ghost" :disabled="loading" @click="saveIntegration(true)"><IconKey />{{ t('rotateServiceToken') }}</button>
+                </div>
               </form>
             </article>
           </div>

@@ -20,6 +20,7 @@ import (
 	"xpanel/internal/auth"
 	"xpanel/internal/configcompiler"
 	"xpanel/internal/inbound"
+	"xpanel/internal/integration"
 	"xpanel/internal/runtime"
 	"xpanel/internal/subscription"
 	"xpanel/internal/system"
@@ -53,6 +54,12 @@ type Handler struct {
 	applier       configApplier
 	logger        *slog.Logger
 	subscriptions *subscription.Service
+	integration   *integration.Service
+}
+
+func (h *Handler) WithIntegration(service *integration.Service) *Handler {
+	h.integration = service
+	return h
 }
 
 func New(service inboundService, auth authService, compiler *configcompiler.Compiler, validator runtime.Validator, applier configApplier, logger *slog.Logger, subscriptions ...*subscription.Service) *Handler {
@@ -65,7 +72,7 @@ func New(service inboundService, auth authService, compiler *configcompiler.Comp
 
 func (h *Handler) Routes() http.Handler {
 	r := chi.NewRouter()
-	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer, middleware.Timeout(20*time.Second))
+	r.Use(capturePeerAddress, middleware.RequestID, middleware.RealIP, middleware.Recoverer, middleware.Timeout(20*time.Second))
 	r.Get("/api/v1/health", h.health)
 	r.Get("/api/v1/auth/status", h.authStatus)
 	r.Post("/api/v1/auth/setup", h.setup)
@@ -75,18 +82,11 @@ func (h *Handler) Routes() http.Handler {
 		r.Get("/sub/{token}", h.publicSubscription)
 	}
 	r.Group(func(protected chi.Router) {
-		protected.Use(h.requireAuth)
+		protected.Use(h.requireResourceAuth)
 		protected.Get("/api/v1/inbounds", h.listInbounds)
 		protected.Post("/api/v1/inbounds", h.createInbound)
 		protected.Put("/api/v1/inbounds/{id}", h.updateInbound)
 		protected.Delete("/api/v1/inbounds/{id}", h.deleteInbound)
-		protected.Post("/api/v1/config/preview", h.previewConfig)
-		protected.Post("/api/v1/config/apply", h.applyConfig)
-		protected.Get("/api/v1/system/status", h.systemStatus)
-		protected.Get("/api/v1/settings", h.settings)
-		protected.Post("/api/v1/settings/panel-port", h.updatePanelPort)
-		protected.Post("/api/v1/settings/account", h.updateAccount)
-		protected.Post("/api/v1/settings/restart", h.restartPanel)
 		if h.subscriptions != nil {
 			protected.Get("/api/v1/subscriptions", h.listSubscriptions)
 			protected.Post("/api/v1/subscriptions", h.createSubscription)
@@ -96,6 +96,17 @@ func (h *Handler) Routes() http.Handler {
 			protected.Post("/api/v1/subscriptions/{id}/rotate", h.rotateSubscription)
 			protected.Delete("/api/v1/subscriptions/{id}", h.deleteSubscription)
 		}
+	})
+	r.Group(func(protected chi.Router) {
+		protected.Use(h.requireBrowserAuth)
+		protected.Post("/api/v1/config/preview", h.previewConfig)
+		protected.Post("/api/v1/config/apply", h.applyConfig)
+		protected.Get("/api/v1/system/status", h.systemStatus)
+		protected.Get("/api/v1/settings", h.settings)
+		protected.Post("/api/v1/settings/panel-port", h.updatePanelPort)
+		protected.Post("/api/v1/settings/account", h.updateAccount)
+		protected.Post("/api/v1/settings/integration", h.updateIntegrationSettings)
+		protected.Post("/api/v1/settings/restart", h.restartPanel)
 	})
 	r.Handle("/*", webui.Handler())
 	return r
@@ -435,7 +446,36 @@ func (h *Handler) systemStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) settings(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"listen": os.Getenv("XPANEL_LISTEN"), "port": currentPanelPort()})
+	result := map[string]any{"listen": os.Getenv("XPANEL_LISTEN"), "port": currentPanelPort()}
+	if h.integration != nil {
+		result["integration"] = h.integration.Current()
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) updateIntegrationSettings(w http.ResponseWriter, r *http.Request) {
+	if h.integration == nil {
+		writeError(w, http.StatusServiceUnavailable, "integration_unavailable", "integration access is not configured")
+		return
+	}
+	var input integration.UpdateInput
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	settings, token, err := h.integration.Update(input)
+	if err != nil {
+		if errors.Is(err, integration.ErrInvalidSettings) {
+			writeError(w, http.StatusUnprocessableEntity, "integration_validation_failed", err.Error())
+			return
+		}
+		h.internalError(w, r, err)
+		return
+	}
+	result := map[string]any{"integration": settings}
+	if token != "" {
+		result["token"] = token
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 type panelPortInput struct {
@@ -532,7 +572,16 @@ func (h *Handler) createInbound(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, item)
 }
 
-func (h *Handler) requireAuth(next http.Handler) http.Handler {
+func (h *Handler) requireBrowserAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.browserAuthenticated(w, r) {
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (h *Handler) requireResourceAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		needsSetup, err := h.auth.NeedsSetup(r.Context())
 		if err != nil {
@@ -543,12 +592,62 @@ func (h *Handler) requireAuth(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "setup_required", "administrator setup is required")
 			return
 		}
-		if _, ok := h.userFromCookie(r); !ok {
+		if _, ok := h.userFromCookie(r); ok {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if h.integration == nil || !h.integration.Authorize(peerAddress(r), bearerToken(r)) {
+			if bearerToken(r) != "" {
+				writeError(w, http.StatusForbidden, "integration_access_denied", "source IP or service token is not allowed")
+				return
+			}
 			writeError(w, http.StatusUnauthorized, "unauthorized", "login required")
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (h *Handler) browserAuthenticated(w http.ResponseWriter, r *http.Request) bool {
+	needsSetup, err := h.auth.NeedsSetup(r.Context())
+	if err != nil {
+		h.internalError(w, r, err)
+		return false
+	}
+	if needsSetup {
+		writeError(w, http.StatusUnauthorized, "setup_required", "administrator setup is required")
+		return false
+	}
+	if _, ok := h.userFromCookie(r); !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "login required")
+		return false
+	}
+	return true
+}
+
+type peerAddressKey struct{}
+
+func capturePeerAddress(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), peerAddressKey{}, r.RemoteAddr)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func peerAddress(r *http.Request) string {
+	if value, ok := r.Context().Value(peerAddressKey{}).(string); ok && value != "" {
+		return value
+	}
+	return r.RemoteAddr
+}
+
+func bearerToken(r *http.Request) string {
+	const prefix = "Bearer "
+	value := strings.TrimSpace(r.Header.Get("Authorization"))
+	if len(value) <= len(prefix) || !strings.EqualFold(value[:len(prefix)], prefix) {
+		return ""
+	}
+	return strings.TrimSpace(value[len(prefix):])
 }
 
 func (h *Handler) userFromCookie(r *http.Request) (auth.User, bool) {

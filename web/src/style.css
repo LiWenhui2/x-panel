@@ -377,6 +377,37 @@ td em { margin-left: 5px; color: #92400e; background: #fef3c7; font-style: norma
 .settings-panel form { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: 12px; }
 .settings-inline-form { grid-template-columns: minmax(140px, 220px) auto !important; }
 .settings-panel form .primary { min-height: 44px; white-space: nowrap; }
+.integration-panel { grid-column: 1 / -1; border-top: 1px solid #e7edf5; border-right: 0; }
+.integration-form { grid-template-columns: minmax(280px, 1fr) minmax(200px, .55fr) auto !important; }
+.integration-ip-field { grid-row: span 2; }
+.integration-form textarea {
+  width: 100%;
+  min-height: 112px;
+  padding: 11px 12px;
+  border: 1px solid #d9e2ee;
+  border-radius: 8px;
+  resize: vertical;
+  color: #172033;
+  background: #fff;
+  font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+  outline: none;
+}
+.integration-form textarea:focus { border-color: #2563eb; box-shadow: 0 0 0 4px rgba(37, 99, 235, .1); }
+.integration-token-status, .fresh-integration-token {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.integration-token-status span, .fresh-integration-token span { color: #64748b; font-size: 12px; font-weight: 800; }
+.integration-token-status code, .fresh-integration-token code { min-width: 0; overflow: hidden; color: #172033; text-overflow: ellipsis; white-space: nowrap; }
+.fresh-integration-token .icon-button { flex: 0 0 auto; margin-left: auto; }
+.integration-actions { display: flex; align-items: center; gap: 10px; }
 .restart-panel {
   display: flex;
   align-items: center;
@@ -719,7 +750,8 @@ td em { margin-left: 5px; color: #92400e; background: #fef3c7; font-style: norma
   .subscription-card-bottom { display: flex; justify-content: flex-start; }
   .client-export-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .subscription-card footer { justify-content: flex-start; width: auto; }
-  .settings-grid, .settings-panel form, .settings-inline-form { grid-template-columns: 1fr !important; }
+  .settings-grid, .settings-panel form, .settings-inline-form, .integration-form { grid-template-columns: 1fr !important; }
+  .integration-ip-field { grid-row: auto; }
   .settings-panel { border-right: 0; border-bottom: 1px solid #e7edf5; }
   .form-grid label.wide { grid-column: auto; }
   .modal-backdrop { padding: 0; }

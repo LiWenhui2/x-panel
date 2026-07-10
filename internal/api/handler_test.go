@@ -17,6 +17,7 @@ import (
 	"xpanel/internal/auth"
 	"xpanel/internal/configcompiler"
 	"xpanel/internal/inbound"
+	"xpanel/internal/integration"
 	"xpanel/internal/runtime"
 	"xpanel/internal/storage/sqlite"
 	"xpanel/internal/subscription"
@@ -207,6 +208,52 @@ func TestAuthStatus(t *testing.T) {
 	}
 	if !payload.NeedsSetup {
 		t.Fatal("expected setup to be required")
+	}
+}
+
+func TestIntegrationTokenCanOnlyAccessWhitelistedResourceRoutes(t *testing.T) {
+	policy, err := integration.Open(filepath.Join(t.TempDir(), "integration.json"), integration.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := policy.Update(integration.UpdateInput{AllowedIPs: []string{"192.0.2.1"}, RotateToken: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := New(
+		&memoryService{},
+		&memoryAuth{setup: true},
+		configcompiler.New(),
+		runtime.JSONValidator{},
+		&memoryApplier{},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	).WithIntegration(policy).Routes()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/inbounds", nil)
+	request.RemoteAddr = "192.0.2.1:54321"
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected integration access, got %d: %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/inbounds", nil)
+	request.RemoteAddr = "198.51.100.10:54321"
+	request.Header.Set("Authorization", "Bearer "+token)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("expected source IP rejection, got %d", response.Code)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil)
+	request.RemoteAddr = "192.0.2.1:54321"
+	request.Header.Set("Authorization", "Bearer "+token)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("service token must not access panel settings, got %d", response.Code)
 	}
 }
 

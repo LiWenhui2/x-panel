@@ -44,7 +44,9 @@ export type SystemStatus = {
   arch: string
   collectedAt: string
 }
-export type Settings = { listen: string; port: number }
+export type IntegrationSettings = { allowedIps: string[]; tokenConfigured: boolean; tokenHint: string }
+export type Settings = { listen: string; port: number; integration?: IntegrationSettings }
+export type IntegrationUpdateResult = { integration: IntegrationSettings; token?: string }
 export type PanelPortResult = { port: number; restartRequired: boolean }
 export type AccountResult = { updated: boolean; restartRequired: boolean }
 export type RestartResult = { restarting: boolean }
@@ -100,6 +102,8 @@ export const api = {
     request<PanelPortResult>('/api/v1/settings/panel-port', { method: 'POST', body: JSON.stringify({ port }) }),
   updateAccount: (input: Credentials) =>
     request<AccountResult>('/api/v1/settings/account', { method: 'POST', body: JSON.stringify(input) }),
+  updateIntegration: (input: { allowedIps: string[]; rotateToken: boolean }) =>
+    request<IntegrationUpdateResult>('/api/v1/settings/integration', { method: 'POST', body: JSON.stringify(input) }),
   restartPanel: () => request<RestartResult>('/api/v1/settings/restart', { method: 'POST' }),
   subscriptions: () => request<{ items: Subscription[] }>('/api/v1/subscriptions'),
   createSubscription: (input: SubscriptionInput) =>

@@ -16,6 +16,7 @@ import (
 	"xpanel/internal/auth"
 	"xpanel/internal/configcompiler"
 	"xpanel/internal/inbound"
+	"xpanel/internal/integration"
 	"xpanel/internal/reconcile"
 	"xpanel/internal/runtime"
 	"xpanel/internal/storage/sqlite"
@@ -56,6 +57,14 @@ func main() {
 	service := inbound.NewService(store, dependencies)
 	subscriptionService := subscription.NewService(store, service)
 	authService := auth.NewService(store)
+	integrationService, err := integration.Open(filepath.Join(dataDir, "integration.json"), integration.Options{
+		AllowedIPs: splitList(os.Getenv("XPANEL_ALLOWED_IPS")),
+		Token:      os.Getenv("XPANEL_API_TOKEN"),
+	})
+	if err != nil {
+		logger.Error("open integration settings", "error", err)
+		os.Exit(1)
+	}
 	if os.Getenv("XPANEL_SEED_DEMO") == "true" {
 		if err := seedDemo(context.Background(), service); err != nil {
 			logger.Error("seed demo", "error", err)
@@ -80,7 +89,7 @@ func main() {
 		Timeout:       20 * time.Second,
 	}
 
-	handler := api.New(service, authService, configcompiler.New(), validator, applier, logger, subscriptionService)
+	handler := api.New(service, authService, configcompiler.New(), validator, applier, logger, subscriptionService).WithIntegration(integrationService)
 	server := &http.Server{
 		Addr:              env("XPANEL_LISTEN", "127.0.0.1:8080"),
 		Handler:           handler.Routes(),
@@ -133,6 +142,12 @@ func env(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func splitList(value string) []string {
+	return strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ';' || r == '\n' || r == '\r'
+	})
 }
 
 func runCommand(ctx context.Context, args []string, store *sqlite.Store, logger *slog.Logger) bool {
