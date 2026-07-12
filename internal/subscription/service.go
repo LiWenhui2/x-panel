@@ -148,7 +148,7 @@ func (s *Service) Resolve(ctx context.Context, token string) (Subscription, []in
 	if strings.TrimSpace(token) == "" {
 		return Subscription{}, nil, ErrNotFound
 	}
-	item, err := s.repository.FindSubscriptionByTokenHash(ctx, hashToken(token))
+	item, err := s.repository.FindSubscriptionByToken(ctx, hashToken(token), token)
 	if err != nil {
 		return Subscription{}, nil, ErrNotFound
 	}

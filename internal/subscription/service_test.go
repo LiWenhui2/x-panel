@@ -35,7 +35,7 @@ func (r *renewRepository) RotateSubscriptionToken(context.Context, int64, string
 func (r *renewRepository) DeleteSubscription(context.Context, int64) error {
 	panic("not used")
 }
-func (r *renewRepository) FindSubscriptionByTokenHash(context.Context, string) (Subscription, error) {
+func (r *renewRepository) FindSubscriptionByToken(context.Context, string, string) (Subscription, error) {
 	panic("not used")
 }
 func (r *renewRepository) SubscriptionToken(context.Context, int64) (Subscription, string, error) {

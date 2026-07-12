@@ -37,7 +37,10 @@ function buildVLESSLink(item: Inbound, address: string, name: string, shadowrock
   const params = new URLSearchParams()
   params.set('type', item.network)
   params.set('security', item.security)
-  if (shadowrocket) params.set('encryption', 'none')
+  if (shadowrocket) {
+    params.set('encryption', 'none')
+    if (item.network === 'tcp') params.set('headerType', 'none')
+  }
   if (item.wsPath) params.set('path', item.wsPath)
   return `vless://${item.clientId}@${address}:${item.port}?${params.toString()}#${name}`
 }

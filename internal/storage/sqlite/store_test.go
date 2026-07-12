@@ -192,6 +192,10 @@ func TestSubscriptionTokenPersistsUntilRotate(t *testing.T) {
 	if token != "first-token" {
 		t.Fatalf("expected initial token to be readable, got %q", token)
 	}
+	resolved, err := store.FindSubscriptionByToken(ctx, "deliberately-wrong-hash", "first-token")
+	if err != nil || resolved.ID != created.ID {
+		t.Fatalf("persisted token must remain resolvable when its stored hash is inconsistent: item=%#v err=%v", resolved, err)
+	}
 	if _, err := store.RotateSubscriptionToken(ctx, created.ID, "second-hash", "oken", "second-token"); err != nil {
 		t.Fatal(err)
 	}

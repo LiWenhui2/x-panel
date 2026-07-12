@@ -103,6 +103,9 @@ func buildShareLinkWithOptions(item inbound.Inbound, address string, shadowrocke
 	values.Set("security", string(item.Security))
 	if shadowrocket {
 		values.Set("encryption", "none")
+		if item.Network == inbound.NetworkTCP {
+			values.Set("headerType", "none")
+		}
 	}
 	if item.WSPath != "" {
 		values.Set("path", item.WSPath)

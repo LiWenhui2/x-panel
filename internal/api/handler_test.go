@@ -340,7 +340,7 @@ func TestPublicSubscriptionDocument(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected base64 shadowrocket subscription: %v", err)
 	}
-	if !strings.Contains(string(decoded), "vless://") || !strings.Contains(string(decoded), "encryption=none") {
+	if !strings.Contains(string(decoded), "vless://") || !strings.Contains(string(decoded), "encryption=none") || !strings.Contains(string(decoded), "headerType=none") {
 		t.Fatalf("unexpected shadowrocket subscription: %s", decoded)
 	}
 }

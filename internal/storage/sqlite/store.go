@@ -446,8 +446,11 @@ SELECT inbound_id FROM subscription_inbounds WHERE subscription_id <> ?
 	return tx.Commit()
 }
 
-func (s *Store) FindSubscriptionByTokenHash(ctx context.Context, tokenHash string) (subscription.Subscription, error) {
-	item, err := scanSubscription(s.db.QueryRowContext(ctx, subscriptionSelect+` WHERE s.token_hash = ? GROUP BY s.id`, tokenHash))
+func (s *Store) FindSubscriptionByToken(ctx context.Context, tokenHash, token string) (subscription.Subscription, error) {
+	// The plaintext token is deliberately persisted so links remain recoverable across
+	// upgrades. It also provides a safe exact-match fallback for databases produced by
+	// versions that stored an inconsistent hash.
+	item, err := scanSubscription(s.db.QueryRowContext(ctx, subscriptionSelect+` WHERE s.token_hash = ? OR s.token = ? GROUP BY s.id`, tokenHash, token))
 	if errors.Is(err, sql.ErrNoRows) {
 		return subscription.Subscription{}, subscription.ErrNotFound
 	}
