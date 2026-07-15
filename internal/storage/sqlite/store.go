@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -411,7 +412,12 @@ func (s *Store) UpdateSubscription(ctx context.Context, id int64, input subscrip
 }
 
 func (s *Store) RotateSubscriptionToken(ctx context.Context, id int64, tokenHash, hint, token string) (subscription.Subscription, error) {
-	result, err := s.db.ExecContext(ctx, `UPDATE subscriptions SET token_hash = ?, token_hint = ?, token = ?, updated_at = ? WHERE id = ?`,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return subscription.Subscription{}, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE subscriptions SET token_hash = ?, token_hint = ?, token = ?, updated_at = ? WHERE id = ?`,
 		tokenHash, hint, token, time.Now().UTC().Format(time.RFC3339Nano), id)
 	if err != nil {
 		return subscription.Subscription{}, err
@@ -419,7 +425,46 @@ func (s *Store) RotateSubscriptionToken(ctx context.Context, id int64, tokenHash
 	if affected, _ := result.RowsAffected(); affected == 0 {
 		return subscription.Subscription{}, subscription.ErrNotFound
 	}
+	rows, err := tx.QueryContext(ctx, `SELECT inbound_id FROM subscription_inbounds WHERE subscription_id = ?`, id)
+	if err != nil {
+		return subscription.Subscription{}, err
+	}
+	var inboundIDs []int64
+	for rows.Next() {
+		var inboundID int64
+		if err := rows.Scan(&inboundID); err != nil {
+			rows.Close()
+			return subscription.Subscription{}, err
+		}
+		inboundIDs = append(inboundIDs, inboundID)
+	}
+	if err := rows.Close(); err != nil {
+		return subscription.Subscription{}, err
+	}
+	for _, inboundID := range inboundIDs {
+		clientID, err := randomUUID()
+		if err != nil {
+			return subscription.Subscription{}, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE inbounds SET client_id = ? WHERE id = ?`, clientID, inboundID); err != nil {
+			return subscription.Subscription{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return subscription.Subscription{}, err
+	}
 	return s.getSubscriptionByID(ctx, id)
+}
+
+func randomUUID() (string, error) {
+	value := make([]byte, 16)
+	if _, err := rand.Read(value); err != nil {
+		return "", err
+	}
+	value[6] = (value[6] & 0x0f) | 0x40
+	value[8] = (value[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		value[0:4], value[4:6], value[6:8], value[8:10], value[10:16]), nil
 }
 
 func (s *Store) DeleteSubscription(ctx context.Context, id int64) error {

@@ -252,6 +252,10 @@ func (h *Handler) rotateSubscription(w http.ResponseWriter, r *http.Request) {
 		h.writeSubscriptionError(w, r, err)
 		return
 	}
+	if _, err := h.applyCurrentConfig(r.Context()); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "auto_apply_failed", "subscription and node credentials rotated, but Xray apply failed: "+err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"subscription": item, "url": subscriptionURL(r, token)})
 }
 

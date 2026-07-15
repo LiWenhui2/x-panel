@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -380,5 +381,47 @@ func TestInactivePublicSubscriptionReturnsEmptyGone(t *testing.T) {
 	}
 	if response.Body.Len() != 0 {
 		t.Fatalf("expected an empty inactive subscription response, got %q", response.Body.String())
+	}
+}
+
+func TestRotateSubscriptionReloadsXrayAndRevokesNodeCredentials(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "rotate-subscription.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	inboundService := inbound.NewService(store)
+	node, err := inboundService.Create(ctx, inbound.CreateInput{
+		Remark: "rotated", Listen: "0.0.0.0", Port: 33443, Protocol: inbound.ProtocolVLESS,
+		Network: inbound.NetworkTCP, Security: inbound.SecurityNone,
+		ClientID: "55555555-5555-4555-8555-555555555555", Email: "rotated@example.com", Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscriptionService := subscription.NewService(store, inboundService)
+	created, _, err := subscriptionService.Create(ctx, subscription.Input{
+		Name: "Rotate", Enabled: true, InboundIDs: []int64{node.ID}, TotalBytes: 4096,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	applier := &memoryApplier{}
+	router := New(inboundService, &memoryAuth{setup: true}, configcompiler.New(), runtime.JSONValidator{}, applier,
+		slog.New(slog.NewTextHandler(io.Discard, nil)), subscriptionService).Routes()
+	request := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/subscriptions/%d/rotate", created.ID), nil)
+	request.AddCookie(&http.Cookie{Name: "xpanel_session", Value: "admin"})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("unexpected rotate response: %d %s", response.Code, response.Body.String())
+	}
+	if !applier.called {
+		t.Fatal("rotating subscription and node credentials must reload Xray immediately")
+	}
+	nodes, err := store.List(ctx)
+	if err != nil || len(nodes) != 1 || nodes[0].ClientID == node.ClientID {
+		t.Fatalf("old imported node credential was not revoked: nodes=%#v err=%v", nodes, err)
 	}
 }

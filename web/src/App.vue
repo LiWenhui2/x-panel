@@ -902,7 +902,7 @@ onBeforeUnmount(() => {
             <label><span>{{ t('protocol') }}</span><select v-model="form.protocol"><option value="vless">VLESS</option><option value="vmess">VMess</option></select></label>
             <label><span>{{ t('listenIp') }}</span><input v-model="form.listen" required /></label>
             <label><span>{{ t('port') }}</span><div class="input-action"><input v-model.number="form.port" type="number" min="1" max="65535" required /><button type="button" @click="form.port=randomPort()">{{ t('random') }}</button></div></label>
-            <label><span>{{ t('totalTraffic') }}</span><input v-model.number="form.totalGB" type="number" min="0" step="0.1" /></label>
+            <label><span>{{ t('totalTraffic') }}</span><input v-model.number="form.totalGB" type="number" min="0" step="any" /></label>
             <label class="wide"><span>{{ t('expiry') }}</span><input v-model="form.expiryLocal" type="datetime-local" /></label>
             <label class="wide"><span>{{ t('clientUuid') }}</span><div class="input-action"><input v-model="form.clientId" required /><button type="button" @click="generateUUID">{{ t('generate') }}</button></div></label>
             <label class="wide"><span>{{ t('clientEmail') }}</span><input v-model="form.email" type="email" required /></label>
@@ -928,7 +928,7 @@ onBeforeUnmount(() => {
           <div class="form-grid">
             <label class="wide"><span>{{ t('subscriptionName') }}</span><input v-model.trim="subscriptionForm.name" :placeholder="t('subscriptionNamePlaceholder')" required autofocus /></label>
             <label><span>{{ t('enabled') }}</span><button type="button" :class="['switch', { on: subscriptionForm.enabled }]" @click="subscriptionForm.enabled=!subscriptionForm.enabled"><i></i>{{ subscriptionForm.enabled ? t('enabled') : t('disabled') }}</button></label>
-            <label><span>{{ t('subscriptionTraffic') }}</span><input v-model.number="subscriptionForm.totalGB" type="number" min="0" step="0.1" /></label>
+            <label><span>{{ t('subscriptionTraffic') }}</span><input v-model.number="subscriptionForm.totalGB" type="number" min="0" step="any" /></label>
             <label class="wide"><span>{{ t('subscriptionExpiry') }}</span><input v-model="subscriptionForm.expiryLocal" type="datetime-local" /></label>
             <fieldset class="wide node-picker">
               <legend>{{ t('selectNodes') }}</legend>

@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -80,6 +81,13 @@ func TestSubscriptionLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	rotatedNodes, err := store.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rotatedNodes) != 1 || rotatedNodes[0].ClientID == node.ClientID {
+		t.Fatalf("rotating a subscription must revoke imported node credentials: before=%q after=%#v", node.ClientID, rotatedNodes)
+	}
 	if _, _, err := service.Resolve(ctx, token); !errors.Is(err, subscription.ErrNotFound) {
 		t.Fatalf("old token should be revoked, got %v", err)
 	}
@@ -95,6 +103,45 @@ func TestSubscriptionLifecycle(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].Enabled {
 		t.Fatalf("expected deleting an exclusive subscription to disable its node, got %#v", items)
+	}
+}
+
+func TestDisabledSubscriptionBlocksEveryBoundNode(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "disabled-subscription.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	inboundService := inbound.NewService(store)
+	var nodeIDs []int64
+	for index, clientID := range []string{"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"} {
+		node, err := inboundService.Create(ctx, inbound.CreateInput{
+			Remark: "bound", Listen: "0.0.0.0", Port: 31000 + index, Protocol: inbound.ProtocolVLESS,
+			Network: inbound.NetworkTCP, Security: inbound.SecurityNone, ClientID: clientID,
+			Email: fmt.Sprintf("bound-%d@example.com", index), Enabled: true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodeIDs = append(nodeIDs, node.ID)
+	}
+	service := subscription.NewService(store, inboundService)
+	created, _, err := service.Create(ctx, subscription.Input{Name: "disabled", Enabled: true, InboundIDs: nodeIDs, TotalBytes: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Update(ctx, created.ID, subscription.Input{Name: "disabled", Enabled: false, InboundIDs: nodeIDs, TotalBytes: 1024}); err != nil {
+		t.Fatal(err)
+	}
+	nodes, err := inboundService.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, node := range nodes {
+		if node.Enabled || !node.TrafficBlocked || node.SubscriptionBlockReason != "subscription_disabled" {
+			t.Fatalf("disabled subscription must block every bound node: %#v", nodes)
+		}
 	}
 }
 
